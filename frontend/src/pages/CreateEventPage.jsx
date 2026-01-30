@@ -1,156 +1,414 @@
-import React, { useState, useContext } from "react";
+import React, { useState, useContext, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthContext } from "../context/AuthContext";
-import { getSuggestedCategories, getCategoriesData, getSubcategoriesByLabel, getCategoryKeyByLabel, getSuggestedTagsBySubcategory, getExclusiveGroupForTag, getTagsInExclusiveGroup } from "../utils/eventIntents";
-import EventPostItPreview from "../components/EventPostItPreview";
-
-const CATEGORIES_DATA = getCategoriesData();
 
 export default function CreateEventPage() {
-  const { auth, fetchWithAuth } = useContext(AuthContext);
-  const [step, setStep] = useState("category");
-  const [form, setForm] = useState({
-    category: "",
-    subcategory: "",
-    title: "",
-    description: "",
-    tags: [],
-    invitees: [],
-    mode: "direct",
-    date: "",
-    time: "",
-    location: "",
-    cost: 0,
-    maxParticipants: 10,
-    clasesModality: "gratis",
-    clasesCost: 0,
-    pollOptions: { dates: [], locations: [] },
-    suggestedCategories: []
-  });
-  const [inviteeInput, setInviteeInput] = useState("");
-  const [titleInput, setTitleInput] = useState("");
-  const [tagInput, setTagInput] = useState("");
+  const { fetchWithAuth } = useContext(AuthContext);
   const navigate = useNavigate();
 
-  const handleCategorySelect = (cat) => {
-    setForm({ ...form, category: cat, subcategory: "" });
-    setStep("subcategory");
+  // Mapa de opciones de personas por deporte
+  const personasOptions = {
+    Futbol: ["5vs5", "7vs7", "11vs11"],
+    Voleyball: ["2vs2", "4vs4", "6vs6"],
+    Handball: ["5vs5"],
+    Tenis: ["1vs1", "2vs2"],
+    Padel: ["1vs1", "2vs2"],
+    Basket: ["1vs1", "2vs2", "5vs5"]
   };
 
-  const handleSubcategorySelect = (subcat) => {
-    setForm({ ...form, subcategory: subcat });
-    setStep("mandatory");
+  // Opciones para Social (juegos de mesa)
+  const socialOptions = ["Cartas Uno", "Monopoly", "Puzzle", "Catan", "TCG (Pokemon, Magic)"];
+
+  // Estado equivalente a tu script JS
+  const [eventData, setEventData] = useState({
+    tipo: "",
+    deporte: "",
+    personas: "",
+    customCount: "", // Para contador personalizado
+    lugar: "",
+    lugarOption: "",
+    dateOption: "", // "hoy", "mañana", "otra"
+    rawDate: "", // yyyy-mm-dd (input type="date")
+    displayDate: "02 de Febrero",
+    hora: "18:00", // HH:mm
+    costoLabel: "Gratis",
+    costoNumber: 0,
+    gratis: true
+  });
+  const [step, setStep] = useState(1);
+
+  const dateInputRef = useRef(null);
+  const timeInputRef = useRef(null);
+
+  // Helpers derivados
+  const titleText = (() => {
+    if (!eventData.tipo) return "¿Qué hacemos?";
+
+    if (eventData.tipo === "Partido de futbol") {
+      if (!eventData.deporte) return eventData.tipo;
+      return `Partido de ${eventData.deporte}`;
+    }
+
+    if (eventData.tipo === "Social") {
+      if (!eventData.deporte) return eventData.tipo;
+      return eventData.deporte; // Mostrar el juego directamente
+    }
+
+    // For "Evento", just show tipo
+    return eventData.tipo;
+  })();
+
+  // Texto de personas para mostrar en línea separada
+  const personasText = (() => {
+    if (eventData.customCount) {
+      return `${eventData.customCount} personas`;
+    }
+    return eventData.personas || "";
+  })();
+
+  // Calcular maxParticipants basado en el formato
+  const maxParticipants = (() => {
+    // Si hay un contador personalizado, usarlo
+    if (eventData.customCount && parseInt(eventData.customCount) > 0) {
+      return parseInt(eventData.customCount);
+    }
+
+    if (!eventData.personas) return 10;
+
+    // Extraer números del formato (ej: "5vs5" -> [5, 5])
+    const match = eventData.personas.match(/(\d+)vs(\d+)/);
+    if (match) {
+      const num1 = parseInt(match[1]);
+      const num2 = parseInt(match[2]);
+      return num1 + num2;
+    }
+
+    return 10; // fallback
+  })();
+
+  // Calcular saturación basada en el progreso (más granular)
+  const getSaturation = () => {
+    const minSaturation = 0.2;
+    const maxSaturation = 1;
+
+    // Contar cuántos campos están completos para tener progreso más granular
+    let completedFields = 0;
+    let totalFields = 6; // tipo, deporte/juego, personas, lugar, fecha, costo
+
+    if (eventData.tipo) completedFields++;
+    if (eventData.deporte || eventData.tipo === "Evento") completedFields++;
+    if (eventData.personas || eventData.customCount) completedFields++;
+    if (eventData.lugar) completedFields++;
+    if (eventData.dateOption && eventData.hora) completedFields++;
+    if (eventData.gratis || eventData.costoNumber > 0) completedFields++;
+
+    const progress = completedFields / totalFields;
+    return minSaturation + (maxSaturation - minSaturation) * progress;
   };
 
-  const handleTitleChange = (e) => {
-    const input = e.target.value;
-    setTitleInput(input);
-    const suggestions = getSuggestedCategories(input);
-    const selectedCategory = suggestions.length > 0 ? suggestions[0] : "";
-    setForm(prev => ({
-      ...prev,
-      category: selectedCategory,
-      suggestedCategories: suggestions,
-      title: input
-    }));
+  // Gradiente y color según el tipo de evento
+  const getCardGradient = () => {
+    if (eventData.tipo === "Partido de futbol") {
+      return "linear-gradient(90deg, #a9ff68, #FF8989)"; // GRADIENTE MINT BLUSH
+    }
+    if (eventData.tipo === "Evento") {
+      return "linear-gradient(90deg, #145277, #83D0CB)"; // gradient formal
+    }
+    if (eventData.tipo === "Social") {
+      return "linear-gradient(90deg, #84FFC9, #AAB2FF, #ECA0FF)"; // gradient semiformal
+    }
+    // Default gris para cuando no hay selección
+    return "linear-gradient(90deg, #e0e0e0, #f5f5f5)";
   };
 
-  const removeCategory = () => {
-    setForm(prev => ({
-      ...prev,
-      category: "",
-      suggestedCategories: []
-    }));
-    setTitleInput("");
-  };
-
-  const handleAddTag = (tag) => {
-    if (tag.trim() && !form.tags.includes(tag.trim())) {
-      const newTag = tag.trim();
-      const exclusiveGroup = getExclusiveGroupForTag(newTag);
-      let updatedTags = form.tags;
-      if (exclusiveGroup) {
-        const groupTags = getTagsInExclusiveGroup(exclusiveGroup);
-        updatedTags = form.tags.filter(t => !groupTags.includes(t));
+  // Handlers para los botones tipo / personas / lugar
+  const handleOptionClick = (field, value) => {
+    setEventData((prev) => {
+      let next = { ...prev };
+      if (field === "tipo") {
+        next.tipo = value;
+        // si se cambia el tipo, reseteamos todo lo posterior
+        if (value !== "Partido de futbol" && value !== "Social") {
+          next.deporte = "";
+        }
+        if (value === "Social") {
+          next.deporte = ""; // Para Social usaremos deporte para guardar el juego
+        }
+        next.personas = "";
+        next.customCount = "";
+        next.lugar = "";
+        next.lugarOption = "";
+        next.dateOption = "";
+        next.rawDate = "";
+        next.displayDate = "02 de Febrero";
       }
-      setForm(prev => ({
+      if (field === "deporte") {
+        next.deporte = value;
+        // Resetear todo lo posterior cuando cambia el deporte
+        next.personas = "";
+        next.customCount = "";
+        next.lugar = "";
+        next.lugarOption = "";
+        next.dateOption = "";
+        next.rawDate = "";
+        next.displayDate = "02 de Febrero";
+      }
+      if (field === "personas") {
+        next.personas = value;
+        // Si selecciona una opción predefinida, limpiar el contador personalizado
+        if (value !== "custom") {
+          next.customCount = "";
+        }
+        // Resetear lugar y fecha cuando cambia personas
+        next.lugar = "";
+        next.lugarOption = "";
+        next.dateOption = "";
+        next.rawDate = "";
+        next.displayDate = "02 de Febrero";
+      }
+      if (field === "lugar") {
+        next.lugarOption = value;
+        next.lugar = value === "Otro" ? "" : value;
+        // Resetear fecha cuando cambia lugar
+        next.dateOption = "";
+        next.rawDate = "";
+        next.displayDate = "02 de Febrero";
+
+        // Actualizar costoLabel según el tipo de lugar
+        const isBarOrCafe = value === "Bar" || value === "Cafetería";
+        if (next.gratis) {
+          next.costoLabel = isBarOrCafe ? "Sin consumo mínimo" : "Gratis";
+        } else if (next.costoNumber) {
+          next.costoLabel = isBarOrCafe
+            ? `Consumo mínimo $${next.costoNumber}`
+            : `$${next.costoNumber} por persona`;
+        } else {
+          next.costoLabel = isBarOrCafe ? "Consumo mínimo pendiente" : "Valor pendiente";
+        }
+      }
+      return next;
+    });
+
+    if (field === "tipo") {
+      setStep(2);
+    }
+    if (field === "deporte") {
+      setStep(2);
+    }
+    if (field === "personas") {
+      setStep(3);
+    }
+    if (field === "lugar") {
+      setStep(4);
+    }
+  };
+
+  // Handler para tabs de fecha (Hoy, Mañana, Otra)
+  const handleDateOptionClick = (option) => {
+    const meses = [
+      "Enero",
+      "Febrero",
+      "Marzo",
+      "Abril",
+      "Mayo",
+      "Junio",
+      "Julio",
+      "Agosto",
+      "Septiembre",
+      "Octubre",
+      "Noviembre",
+      "Diciembre"
+    ];
+
+    let selectedDate;
+    if (option === "hoy") {
+      selectedDate = new Date();
+    } else if (option === "mañana") {
+      selectedDate = new Date();
+      selectedDate.setDate(selectedDate.getDate() + 1);
+    } else {
+      // "otra" - dejar vacío para que el usuario seleccione
+      setEventData((prev) => ({
         ...prev,
-        tags: [...updatedTags, newTag]
+        dateOption: option,
+        rawDate: "",
+        displayDate: "02 de Febrero"
       }));
+      if (eventData.hora) {
+        setStep((prev) => Math.max(prev, 5));
+      }
+      return;
     }
-  };
 
-  const handleRemoveTag = (index) => {
-    setForm(prev => ({
+    const year = selectedDate.getFullYear();
+    const month = String(selectedDate.getMonth() + 1).padStart(2, "0");
+    const day = String(selectedDate.getDate()).padStart(2, "0");
+    const rawDate = `${year}-${month}-${day}`;
+
+    const dia = selectedDate.getDate();
+    const mes = meses[selectedDate.getMonth()];
+    const displayDate = `${dia} de ${mes}`;
+
+    setEventData((prev) => ({
       ...prev,
-      tags: prev.tags.filter((_, i) => i !== index)
+      dateOption: option,
+      rawDate,
+      displayDate
     }));
-  };
 
-  const handleAddCustomTag = () => {
-    if (tagInput.trim()) {
-      handleAddTag(tagInput);
-      setTagInput("");
+    if (eventData.hora) {
+      setStep((prev) => Math.max(prev, 5));
     }
   };
 
-  const handleAddInvitee = () => {
-    if (inviteeInput.trim()) {
-      setForm({
-        ...form,
-        invitees: [...form.invitees, inviteeInput]
-      });
-      setInviteeInput("");
+  // Handler fecha (type="date") - solo para "otra"
+  const handleDateChange = (value) => {
+    if (!value) {
+      setEventData((prev) => ({
+        ...prev,
+        rawDate: "",
+        displayDate: "02 de Febrero"
+      }));
+      return;
+    }
+    const date = new Date(value + "T00:00:00");
+    const meses = [
+      "Enero",
+      "Febrero",
+      "Marzo",
+      "Abril",
+      "Mayo",
+      "Junio",
+      "Julio",
+      "Agosto",
+      "Septiembre",
+      "Octubre",
+      "Noviembre",
+      "Diciembre"
+    ];
+    const dia = date.getDate();
+    const mes = meses[date.getMonth()];
+    setEventData((prev) => {
+      const updated = {
+        ...prev,
+        rawDate: value,
+        displayDate: `${dia} de ${mes}`
+      };
+      return updated;
+    });
+    if (value && eventData.hora) {
+      setStep((prev) => Math.max(prev, 5));
     }
   };
 
-  const handleRemoveInvitee = (index) => {
-    setForm({
-      ...form,
-      invitees: form.invitees.filter((_, i) => i !== index)
+  // Handler hora
+  const handleTimeChange = (value) => {
+    setEventData((prev) => {
+      const updated = {
+        ...prev,
+        hora: value || "18:00"
+      };
+      return updated;
+    });
+    if (eventData.rawDate && value) {
+      setStep((prev) => Math.max(prev, 5));
+    }
+  };
+
+  // Gratis / no gratis
+  const handleGratisChange = (isFree) => {
+    setEventData((prev) => {
+      const isBarOrCafe = prev.lugarOption === "Bar" || prev.lugarOption === "Cafetería";
+      return {
+        ...prev,
+        gratis: isFree,
+        costoLabel: isFree
+          ? (isBarOrCafe ? "Sin consumo mínimo" : "Gratis")
+          : prev.costoNumber
+          ? (isBarOrCafe ? `Consumo mínimo $${prev.costoNumber}` : `$${prev.costoNumber} por persona`)
+          : (isBarOrCafe ? "Consumo mínimo pendiente" : "Valor pendiente")
+      };
     });
   };
 
-  const handleModeSelect = (mode) => {
-    setForm({ ...form, mode });
-    setStep(mode === "direct" ? "details" : "voting");
+  const handleCostoInput = (value) => {
+    const num = Number(value || 0);
+    setEventData((prev) => {
+      const isBarOrCafe = prev.lugarOption === "Bar" || prev.lugarOption === "Cafetería";
+      return {
+        ...prev,
+        costoNumber: num,
+        costoLabel:
+          !prev.gratis && num
+            ? (isBarOrCafe ? `Consumo mínimo $${num}` : `$${num} por persona`)
+            : !prev.gratis
+            ? (isBarOrCafe ? "Consumo mínimo pendiente" : "Valor pendiente")
+            : (isBarOrCafe ? "Sin consumo mínimo" : "Gratis")
+      };
+    });
   };
 
-  const handleAddPollOption = (type, option) => {
-    if (option.trim()) {
-      setForm({
-        ...form,
-        pollOptions: {
-          ...form.pollOptions,
-          [type]: [...form.pollOptions[type], option]
-        }
-      });
+  // Handler para contador personalizado
+  const handleCustomCountInput = (value) => {
+    const num = value ? parseInt(value) : "";
+    setEventData((prev) => ({
+      ...prev,
+      customCount: num,
+      personas: num ? "custom" : "" // Marcamos que hay una selección
+    }));
+    if (num && num > 0) {
+      setStep((prev) => Math.max(prev, 3));
     }
   };
 
-  const submit = async (e) => {
+  // Enviar al backend
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    const payload = {
-      title: form.title,
-      description: form.description,
-      category: form.category,
-      subcategory: form.subcategory,
-      tags: form.tags,
-      invitees: form.invitees,
-      mode: form.mode,
-      maxParticipants: form.maxParticipants
-    };
 
-    if (form.mode === "direct") {
-      payload.date = form.date;
-      payload.time = form.time;
-      payload.location = form.location;
-      payload.cost = form.cost;
-    } else {
-      payload.pollOptions = form.pollOptions;
-      payload.status = "proposal";
+    // Construir título y payload para tu API
+    const title = titleText;
+
+    // Determinar categoría basada en el tipo de evento
+    let category = "Evento"; // default
+    if (eventData.tipo === "Partido de futbol") {
+      category = "Partido";
+    } else if (eventData.tipo === "Social") {
+      category = "Social";
     }
+
+    const subcategory = eventData.personas === "custom"
+      ? eventData.customCount.toString()
+      : eventData.personas || "";
+
+    // Convertir fecha+hora a ISO para Mongo (Date)
+    let dateIso;
+    try {
+      if (!eventData.rawDate || !eventData.hora) {
+        throw new Error("Fecha u hora faltante");
+      }
+      const isoString = `${eventData.rawDate}T${eventData.hora}:00`;
+      const dateObj = new Date(isoString);
+      if (isNaN(dateObj.getTime())) throw new Error("Fecha inválida");
+      dateIso = dateObj.toISOString();
+    } catch {
+      alert("Fecha u hora inválida.");
+      return;
+    }
+
+    const payload = {
+      title,
+      description: "",
+      category,
+      subcategory,
+      tags: [],
+      invitees: [],
+      mode: "direct",
+      maxParticipants,
+      date: dateIso,
+      time: eventData.hora,
+      location: eventData.lugar,
+      cost: eventData.gratis ? 0 : eventData.costoNumber || 0
+    };
 
     try {
       const res = await fetchWithAuth("http://localhost:3000/api/events", {
@@ -158,423 +416,654 @@ export default function CreateEventPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
-
       const data = await res.json();
-      
+
       if (res.ok) {
-        alert(form.mode === "direct" ? "Evento creado" : "Propuesta de evento publicada");
+        alert("Evento creado");
         navigate("/");
       } else {
-        alert(data.error || "Error al crear evento");
+        alert(
+          data.details
+            ? `${data.error || "Error al crear evento"}: ${data.details}`
+            : data.error || "Error al crear evento"
+        );
       }
-    } catch (error) {
-      console.error("Error:", error);
+    } catch (err) {
+      console.error(err);
       alert("Error al crear evento");
     }
   };
 
+  // Estilos traducidos de tu CSS a objetos JS
   const styles = {
-    wrapper: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: "40px",
-      padding: "40px",
+    bodyBg: {
+      backgroundImage: "url('/assets/distorted-grid-line-png-pattern.jpg')",
+      backgroundSize: "cover",
+      backgroundPosition: "center",
+      backgroundAttachment: "fixed",
+      backgroundColor: "#e8e8e8",
       minHeight: "100vh",
-      backgroundColor: "#fafafa"
-    },
-    leftPanel: {
+      padding: "20px",
       display: "flex",
-      alignItems: "flex-start",
       justifyContent: "center",
-      paddingTop: "60px"
+      alignItems: "flex-start"
     },
-    rightPanel: {
-      maxWidth: "500px"
+    container: {
+      maxWidth: "600px",
+      width: "100%",
+      margin: "0 auto"
     },
-    stepHeader: {
-      marginBottom: "30px"
+    eventCard: {
+      background:
+        "linear-gradient(135deg, #d4b5d4 0%, #c8a8d8 50%, #b8c8e8 100%)",
+      borderRadius: "20px",
+      padding: "30px",
+      marginBottom: "30px",
+      border: "3px solid #333",
+      position: "relative",
+      minHeight: "350px",
+      maxHeight: "350px",
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "space-between"
     },
-    section: { marginBottom: "20px" },
-    categoryGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" },
-    btn: { padding: "10px 20px", margin: "5px", cursor: "pointer", border: "1px solid #ccc", borderRadius: "4px", backgroundColor: "#fff" },
-    btnActive: { padding: "10px 20px", margin: "5px", cursor: "pointer", backgroundColor: "#007bff", color: "white", border: "none", borderRadius: "4px" },
-    input: { width: "100%", padding: "8px", marginBottom: "10px", borderRadius: "4px", border: "1px solid #ccc", boxSizing: "border-box" },
-    list: { listStyle: "none", padding: 0 },
-    listItem: { padding: "8px", backgroundColor: "#f0f0f0", marginBottom: "5px", borderRadius: "4px", display: "flex", justifyContent: "space-between" },
-    selectedTags: { display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "10px", minHeight: "40px" },
-    tag: { padding: "6px 12px", backgroundColor: "#007bff", color: "white", borderRadius: "20px", fontSize: "14px", display: "flex", alignItems: "center", gap: "6px" },
-    tagClose: { cursor: "pointer", fontWeight: "bold" },
-    navigationButtons: { display: "flex", gap: "10px", marginTop: "20px", justifyContent: "space-between" }
-  };
-
-  const goBack = () => {
-    if (step === "subcategory") setStep("category");
-    else if (step === "mandatory") setStep("category");
-    else if (step === "mode") setStep("mandatory");
-    else if (step === "details" || step === "voting") setStep("mode");
+    eventTitle: {
+      fontSize: "80px",
+      fontWeight: 900,
+      lineHeight: 1,
+      marginBottom: "80px",
+      marginTop: "5px",
+      fontFamily:
+        '"Bricolage Grotesque", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    },
+    rating: {
+      position: "absolute",
+      top: "30px",
+      right: "30px",
+      fontSize: "32px",
+      fontWeight: "bold"
+    },
+    eventDetails: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-start"
+    },
+    eventLocation: {
+      fontSize: "16px",
+      fontWeight: "bold",
+      lineHeight: 1.4,
+      fontFamily:
+        '"Bricolage Grotesque", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    },
+    eventDate: {
+      textAlign: "right",
+      fontSize: "16px",
+      fontWeight: "bold",
+      lineHeight: 1.4,
+      fontFamily:
+        '"Bricolage Grotesque", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    },
+    questionsSection: {
+      background: "rgba(255, 255, 255, 0.5)",
+      padding: "30px",
+      borderRadius: "15px",
+      fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive'
+    },
+    questionGroup: {
+      marginBottom: "35px",
+      transition: "all 0.4s ease-in-out"
+    },
+    questionTitle: {
+      fontSize: "24px",
+      fontWeight: "bold",
+      textAlign: "center",
+      marginBottom: "20px",
+      textTransform: "uppercase",
+      fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive'
+    },
+    options: {
+      display: "flex",
+      gap: "15px",
+      justifyContent: "center",
+      flexWrap: "wrap"
+    },
+    sketchBtn: (active = false, wide = false, dimmed = false) => ({
+      background: active ? "#f0f0f0" : "#fff",
+      border: "3px solid #000",
+      padding: "15px 30px",
+      fontSize: "18px",
+      fontWeight: "bold",
+      cursor: "pointer",
+      position: "relative",
+      textTransform: "uppercase",
+      transition: "all 0.5s cubic-bezier(0.4, 0, 0.2, 1)",
+      boxShadow: "3px 3px 0 #000",
+      minWidth: wide ? "250px" : undefined,
+      fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+      opacity: dimmed ? 0.3 : 1,
+      filter: dimmed ? "grayscale(1)" : "none",
+      transform: dimmed ? "scale(0.85)" : "scale(1)"
+    }),
+    dateTimeGroup: {
+      display: "flex",
+      gap: "15px",
+      justifyContent: "center",
+      flexWrap: "wrap"
+    },
+    dateInput: {
+      border: "3px solid #000",
+      padding: "15px 20px",
+      fontSize: "16px",
+      textAlign: "center",
+      cursor: "pointer",
+      boxShadow: "3px 3px 0 #000",
+      background: "#fff",
+      minWidth: "140px"
+    },
+    valorInput: {
+      border: "3px solid #000",
+      padding: "15px 20px",
+      fontSize: "16px",
+      textAlign: "center",
+      boxShadow: "3px 3px 0 #000",
+      background: "#fff",
+      minWidth: "250px"
+    }
   };
 
   return (
-    <div style={styles.wrapper}>
-      {/* LEFT PANEL: Post-it Preview */}
-      <div style={styles.leftPanel}>
-        <EventPostItPreview form={form} />
-      </div>
+    <div style={styles.bodyBg}>
+      <div style={styles.container}>
+        {/* Tarjeta del evento */}
+        <div style={{
+          ...styles.eventCard,
+          background: getCardGradient(),
+          filter: `saturate(${getSaturation()})`
+        }}>
+          {/* Rating solo si hay personas seleccionadas */}
+          {(eventData.personas || eventData.customCount) && (
+            <div style={styles.rating}>1/{maxParticipants}</div>
+          )}
 
-      {/* RIGHT PANEL: Step-based Form */}
-      <div style={styles.rightPanel}>
-        <div style={styles.stepHeader}>
-          <h1>Crear Evento</h1>
-          <p style={{ color: "#666", fontSize: "14px" }}>Completa los detalles paso a paso</p>
+          {/* Título que se va llenando */}
+          <h1 style={styles.eventTitle}>
+            {eventData.tipo ? (
+              <>
+                {titleText.split(" ").slice(0, 2).join("\n").split("\n").map((line, i) => (
+                  <React.Fragment key={i}>
+                    {i > 0 && <br />}
+                    {line}
+                  </React.Fragment>
+                ))}
+                {titleText.split(" ").slice(2).length > 0 && (
+                  <>
+                    {" "}
+                    {titleText.split(" ").slice(2).join(" ")}
+                  </>
+                )}
+                {personasText && (
+                  <>
+                    <br />
+                    {personasText}
+                  </>
+                )}
+              </>
+            ) : (
+              "¿Qué hacemos?"
+            )}
+          </h1>
+
+          <div style={styles.eventDetails}>
+            <div style={styles.eventLocation}>
+              {eventData.lugar && (
+                <>
+                  • {eventData.lugar}
+                  <br />
+                </>
+              )}
+              {step >= 5 && (
+                <>• {eventData.costoLabel}</>
+              )}
+            </div>
+            <div style={styles.eventDate}>
+              {eventData.displayDate && eventData.dateOption && (
+                <>
+                  {eventData.displayDate}
+                  <br />
+                </>
+              )}
+              {eventData.hora && eventData.dateOption && (
+                <>{eventData.hora} horas</>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* PASO 1: Categoría */}
-        {step === "category" && (
-          <div style={styles.section}>
-            <h3>Selecciona una Categoría o describe tu evento</h3>
-            <input
-              style={styles.input}
-              placeholder="Ej: 'partido de fútbol', 'clase de yoga'..."
-              value={titleInput}
-              onChange={handleTitleChange}
-              autoFocus
-            />
-            {form.category && (
-              <div style={styles.selectedTags}>
-                <div style={styles.tag}>
-                  {form.category}
-                  <span style={styles.tagClose} onClick={removeCategory}>✕</span>
-                </div>
-              </div>
-            )}
-            <h4>O elige de estas categorías:</h4>
-            <div style={styles.categoryGrid}>
-              {Object.entries(CATEGORIES_DATA).map(([key, data]) => (
-                <button
-                  key={key}
-                  style={{
-                    ...styles.btnActive,
-                    backgroundColor: form.category === data.label ? "#0056b3" : "#007bff"
-                  }}
-                  onClick={() => handleCategorySelect(data.label)}
-                >
-                  {data.label}
-                </button>
-              ))}
-            </div>
-            {form.category && (
-              <button style={styles.btnActive} onClick={() => setStep("mandatory")} type="button">
-                Siguiente →
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* PASO 2: Subcategoría */}
-        {step === "subcategory" && (
-          <div style={styles.section}>
-            <h3>Selecciona tipo de {form.category}</h3>
-            <div style={styles.categoryGrid}>
-              {CATEGORIES_DATA[getCategoryKeyByLabel(form.category)]?.subcategories.map(subcat => (
-                <button
-                  key={subcat}
-                  style={styles.btnActive}
-                  onClick={() => handleSubcategorySelect(subcat)}
-                >
-                  {subcat}
-                </button>
-              ))}
-            </div>
-            <div style={styles.navigationButtons}>
-              <button style={styles.btn} onClick={goBack}>← Atrás</button>
+        {/* Zona de preguntas + submit */}
+        <form style={styles.questionsSection} onSubmit={handleSubmit}>
+          {/* Tipo de actividad */}
+          <div
+            style={{
+              ...styles.questionGroup,
+              marginBottom:
+                eventData.tipo === "Partido de futbol" && step > 1 ? "16px" : "35px"
+            }}
+          >
+            <h2
+              style={{
+                ...styles.questionTitle,
+                fontSize:
+                  eventData.tipo === "Partido de futbol" && step > 1 ? "18px" : "24px"
+              }}
+            >
+              Que hacemos ?
+            </h2>
+            <div style={styles.options}>
+              {["Partido de futbol", "Social", "Evento"].map((val) => {
+                const selected = eventData.tipo === val;
+                const someSelected = !!eventData.tipo;
+                const dimmed = someSelected && !selected;
+                return (
+                  <button
+                    key={val}
+                    type="button"
+                    style={styles.sketchBtn(selected, false, dimmed)}
+                    onClick={() => handleOptionClick("tipo", val)}
+                  >
+                    {val === "Partido de futbol" ? "Partido" : val}
+                  </button>
+                );
+              })}
             </div>
           </div>
-        )}
 
-        {/* PASO 3: Campos Obligatorios */}
-        {step === "mandatory" && (
-          <div style={styles.section}>
-            <h3>Información del Evento</h3>
-            <input
-              style={styles.input}
-              placeholder="Nombre del Evento"
-              value={form.title}
-              onChange={e => setForm({...form, title: e.target.value})}
-              required
-            />
-            <textarea
-              style={styles.input}
-              placeholder="Descripción"
-              value={form.description}
-              onChange={e => setForm({...form, description: e.target.value})}
-              rows="4"
-              required
-            />
-
-            <h4>Tags ({form.subcategory})</h4>
-            <div style={styles.selectedTags}>
-              {form.tags.map((tag, i) => (
-                <div key={i} style={styles.tag}>
-                  {tag}
-                  <span style={styles.tagClose} onClick={() => handleRemoveTag(i)}>✕</span>
-                </div>
-              ))}
-            </div>
-
-            {getSuggestedTagsBySubcategory(form.subcategory).length > 0 && (
-              <div style={{marginBottom: "10px"}}>
-                <p style={{fontSize: "12px", color: "#666", marginBottom: "8px"}}>Sugerencias:</p>
-                <div style={{display: "flex", flexWrap: "wrap", gap: "6px"}}>
-                  {getSuggestedTagsBySubcategory(form.subcategory).map((tag, i) => (
+          {/* Deporte (solo para camino Partido) */}
+          {eventData.tipo === "Partido de futbol" && (
+            <div
+              style={{
+                ...styles.questionGroup,
+                marginBottom: step > 2 ? "20px" : "28px"
+              }}
+            >
+              <h2 style={styles.questionTitle}>¿Qué deporte?</h2>
+              <div style={styles.options}>
+                {["Futbol", "Voleyball", "Handball", "Tenis", "Padel", "Basket"].map((val) => {
+                  const selected = eventData.deporte === val;
+                  const someSelected = !!eventData.deporte;
+                  const dimmed = someSelected && !selected;
+                  return (
                     <button
-                      key={i}
-                      style={{...styles.btn, padding: "4px 10px", fontSize: "12px"}}
-                      onClick={() => handleAddTag(tag)}
+                      key={val}
                       type="button"
+                      style={styles.sketchBtn(selected, false, dimmed)}
+                      onClick={() => handleOptionClick("deporte", val)}
                     >
-                      + {tag}
+                      {val}
                     </button>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
-            )}
-
-            <div style={{display: "flex", gap: "5px", marginBottom: "10px"}}>
-              <input
-                style={{...styles.input, marginBottom: 0, flex: 1}}
-                placeholder="Agregar tag personalizado..."
-                value={tagInput}
-                onChange={e => setTagInput(e.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && handleAddCustomTag()}
-              />
-              <button
-                style={{...styles.btn, padding: "8px 15px"}}
-                onClick={handleAddCustomTag}
-                type="button"
-              >
-                Agregar
-              </button>
             </div>
+          )}
 
-            {form.category === "Clases" && (
-              <div style={{...styles.section, border: "1px solid #ddd", padding: "15px", borderRadius: "4px", marginBottom: "15px"}}>
-                <h4>Modalidad de la Clase</h4>
-                <div style={{display: "flex", gap: "10px", marginBottom: "10px"}}>
-                  <button
-                    style={{
-                      ...styles.btn,
-                      backgroundColor: form.clasesModality === "gratis" ? "#28a745" : "#fff",
-                      color: form.clasesModality === "gratis" ? "white" : "#000"
-                    }}
-                    onClick={() => setForm({...form, clasesModality: "gratis", clasesCost: 0})}
-                    type="button"
-                  >
-                    Gratis
-                  </button>
-                  <button
-                    style={{
-                      ...styles.btn,
-                      backgroundColor: form.clasesModality === "pagada" ? "#28a745" : "#fff",
-                      color: form.clasesModality === "pagada" ? "white" : "#000"
-                    }}
-                    onClick={() => setForm({...form, clasesModality: "pagada"})}
-                    type="button"
-                  >
-                    Pagada
-                  </button>
-                </div>
-                {form.clasesModality === "pagada" && (
+          {/* Juegos (solo para camino Social) */}
+          {eventData.tipo === "Social" && (
+            <div
+              style={{
+                ...styles.questionGroup,
+                marginBottom: step > 2 ? "20px" : "28px"
+              }}
+            >
+              <h2 style={styles.questionTitle}>¿Qué juego?</h2>
+              <div style={styles.options}>
+                {socialOptions.map((val) => {
+                  const selected = eventData.deporte === val;
+                  const someSelected = !!eventData.deporte;
+                  const dimmed = someSelected && !selected;
+                  return (
+                    <button
+                      key={val}
+                      type="button"
+                      style={styles.sketchBtn(selected, false, dimmed)}
+                      onClick={() => handleOptionClick("deporte", val)}
+                    >
+                      {val}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Número de personas */}
+          {step >= 2 &&
+            ((eventData.tipo === "Partido de futbol" && eventData.deporte) ||
+             (eventData.tipo === "Social" && eventData.deporte) ||
+             (eventData.tipo === "Evento")) && (
+              <div
+                style={{
+                  ...styles.questionGroup,
+                  marginBottom: step > 3 ? "20px" : "35px"
+                }}
+              >
+                <h2
+                  style={{
+                    ...styles.questionTitle,
+                    fontSize: step > 3 ? "20px" : "24px"
+                  }}
+                >
+                  Para cuántas personas?
+                </h2>
+              <div style={styles.options}>
+                {/* Opciones predefinidas para deportes */}
+                {eventData.tipo === "Partido de futbol" && personasOptions[eventData.deporte] &&
+                  personasOptions[eventData.deporte].map((val) => {
+                    const selected = eventData.personas === val && !eventData.customCount;
+                    const someSelected = !!eventData.personas || !!eventData.customCount;
+                    const dimmed = someSelected && !selected;
+                    return (
+                      <button
+                        key={val}
+                        type="button"
+                        style={styles.sketchBtn(selected, false, dimmed)}
+                        onClick={() => handleOptionClick("personas", val)}
+                      >
+                        {val}
+                      </button>
+                    );
+                  })}
+
+                {/* Para Social y Evento, solo mostrar contador */}
+                {(eventData.tipo === "Social" || eventData.tipo === "Evento") && (
                   <input
-                    style={styles.input}
                     type="number"
-                    placeholder="¿Cuánto cuesta?"
-                    value={form.clasesCost}
-                    onChange={e => setForm({...form, clasesCost: e.target.value})}
-                    min="0"
+                    style={{
+                      ...styles.valorInput,
+                      minWidth: "200px"
+                    }}
+                    placeholder="Número de personas"
+                    value={eventData.customCount || ""}
+                    onChange={(e) => handleCustomCountInput(e.target.value)}
+                    min={1}
                   />
                 )}
               </div>
+              </div>
             )}
 
-            <input
-              style={styles.input}
-              type="number"
-              placeholder="Máximo de participantes"
-              value={form.maxParticipants}
-              onChange={e => setForm({...form, maxParticipants: e.target.value})}
-              required
-            />
-            <div style={styles.navigationButtons}>
-              <button style={styles.btn} onClick={goBack}>← Atrás</button>
-              <button style={styles.btnActive} onClick={() => setStep("mode")}>Siguiente →</button>
-            </div>
-          </div>
-        )}
-
-        {/* PASO 4: Modo */}
-        {step === "mode" && (
-          <div style={styles.section}>
-            <h3>¿Cómo definir la logística?</h3>
-            <button
-              style={{...styles.btnActive, width: "100%", marginBottom: "10px"}}
-              onClick={() => handleModeSelect("direct")}
+          {/* Lugar */}
+          {step >= 3 && (
+            <div
+              style={{
+                ...styles.questionGroup,
+                marginBottom: step > 4 ? "20px" : "35px"
+              }}
             >
-              📅 Host Define Todo (Ahora)
-            </button>
-            <button
-              style={{...styles.btnActive, width: "100%"}}
-              onClick={() => handleModeSelect("voting")}
+              <h2 style={styles.questionTitle}>Donde ?</h2>
+
+              {/* Opciones para Social */}
+              {eventData.tipo === "Social" && (
+                <>
+                  <div style={styles.options}>
+                    {["Bar", "Cafetería", "Tienda", "Biblioteca", "Plaza"].map((val) => {
+                      const selected = eventData.lugarOption === val;
+                      const someSelected = !!eventData.lugarOption && !["Otro"].includes(eventData.lugarOption);
+                      const dimmed = someSelected && !selected;
+                      return (
+                        <button
+                          key={val}
+                          type="button"
+                          style={styles.sketchBtn(selected, false, dimmed)}
+                          onClick={() => handleOptionClick("lugar", val)}
+                        >
+                          {val}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ ...styles.options, marginTop: 15 }}>
+                    <input
+                      type="text"
+                      style={styles.valorInput}
+                      placeholder="Ingresa otra ubicación..."
+                      value={eventData.lugarOption === "Otro" ? eventData.lugar : ""}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setEventData((prev) => ({
+                          ...prev,
+                          lugar: value,
+                          lugarOption: value ? "Otro" : ""
+                        }));
+                        if (value) {
+                          setStep((prev) => Math.max(prev, 4));
+                        }
+                      }}
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Opciones para Partido y Evento */}
+              {eventData.tipo !== "Social" && (
+                <>
+                  <div style={styles.options}>
+                    <select
+                      style={styles.dateInput}
+                      value={eventData.lugarOption}
+                      onChange={(e) => handleOptionClick("lugar", e.target.value)}
+                    >
+                      <option value="" disabled>
+                        Qué cancha
+                      </option>
+                      <option value="Parque Ecuador">Parque Ecuador</option>
+                      <option value="Canchas Universidad">Canchas Universidad</option>
+                      <option value="Otro">Otro</option>
+                    </select>
+                  </div>
+                  {eventData.lugarOption === "Otro" && (
+                    <div style={{ ...styles.options, marginTop: 10 }}>
+                      <input
+                        type="text"
+                        style={styles.valorInput}
+                        placeholder="Escribe el lugar..."
+                        value={eventData.lugarOption === "Otro" ? eventData.lugar : ""}
+                        onChange={(e) =>
+                          setEventData((prev) => ({
+                            ...prev,
+                            lugar: e.target.value
+                          }))
+                        }
+                        required
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Fecha y hora */}
+          {step >= 4 && (
+            <div
+              style={{
+                ...styles.questionGroup,
+                marginBottom: step > 5 ? "20px" : "35px"
+              }}
             >
-              🗳️ Votación / Posterior
-            </button>
-            <div style={styles.navigationButtons}>
-              <button style={styles.btn} onClick={goBack}>← Atrás</button>
-            </div>
-          </div>
-        )}
+              <h2 style={styles.questionTitle}>Cuando ?</h2>
 
-        {/* PASO 5: Detalles */}
-        {step === "details" && form.mode === "direct" && (
-          <form onSubmit={submit}>
-            <h3>Completa los Detalles del Evento</h3>
-            
-            <div style={{marginBottom: "15px"}}>
-              <label style={{display: "block", marginBottom: "5px", fontWeight: "bold", fontSize: "14px"}}>
-                📅 Fecha (dd/mm/yyyy)
-              </label>
-              <input
-                style={styles.input}
-                type="text"
-                placeholder="dd/mm/yyyy"
-                value={form.date}
-                onChange={e => {
-                  const value = e.target.value;
-                  // Solo permitir números y /
-                  const formatted = value.replace(/[^\d/]/g, '');
-                  // Auto-formatear: dd/mm/yyyy
-                  let result = formatted;
-                  if (formatted.length === 2 && !formatted.includes('/')) {
-                    result = formatted + '/';
-                  } else if (formatted.length === 5 && (formatted.match(/\//g) || []).length === 1) {
-                    result = formatted + '/';
-                  }
-                  setForm({...form, date: result});
-                }}
-                maxLength="10"
-                required
-              />
-            </div>
+              {/* Tabs de fecha */}
+              <div style={styles.options}>
+                {["hoy", "mañana", "otra fecha"].map((val) => {
+                  const selected = eventData.dateOption === val;
+                  const someSelected = !!eventData.dateOption;
+                  const dimmed = someSelected && !selected;
+                  return (
+                    <button
+                      key={val}
+                      type="button"
+                      style={styles.sketchBtn(selected, false, dimmed)}
+                      onClick={() => handleDateOptionClick(val)}
+                    >
+                      {val.charAt(0).toUpperCase() + val.slice(1)}
+                    </button>
+                  );
+                })}
+              </div>
 
-            <div style={{marginBottom: "15px"}}>
-              <label style={{display: "block", marginBottom: "5px", fontWeight: "bold", fontSize: "14px"}}>
-                🕐 Hora (24h)
-              </label>
-              <input
-                style={styles.input}
-                type="time"
-                value={form.time}
-                onChange={e => setForm({...form, time: e.target.value})}
-                required
-              />
-            </div>
+              {/* Input de fecha (solo si selecciona "otra") */}
+              {eventData.dateOption === "otra" && (
+                <div style={{ ...styles.options, marginTop: 15 }}>
+                  <div
+                    style={styles.dateInput}
+                    onClick={() => {
+                      if (dateInputRef.current && dateInputRef.current.showPicker) {
+                        dateInputRef.current.showPicker();
+                      }
+                    }}
+                  >
+                    <input
+                      ref={dateInputRef}
+                      type="date"
+                      style={{ border: "none", background: "transparent", width: "100%", cursor: "pointer" }}
+                      value={eventData.rawDate}
+                      onChange={(e) => handleDateChange(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
 
-            <div style={{marginBottom: "15px"}}>
-              <label style={{display: "block", marginBottom: "5px", fontWeight: "bold", fontSize: "14px"}}>
-                📍 Lugar
-              </label>
-              <input
-                style={styles.input}
-                placeholder="Lugar"
-                value={form.location}
-                onChange={e => setForm({...form, location: e.target.value})}
-                required
-              />
+              {/* Hora (siempre visible debajo) */}
+              {eventData.dateOption && (
+                <div style={{ ...styles.options, marginTop: 15 }}>
+                  <div style={styles.dateInput}>
+                    <input
+                      type="time"
+                      value={eventData.hora}
+                      onChange={(e) => handleTimeChange(e.target.value)}
+                      style={{
+                        border: "none",
+                        background: "transparent",
+                        width: "100%",
+                        cursor: "pointer",
+                        fontSize: "16px",
+                        fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                        fontWeight: "bold",
+                        textAlign: "center",
+                        outline: "none"
+                      }}
+                      required
+                    />
+                  </div>
+                </div>
+              )}
             </div>
+          )}
 
-            <div style={{marginBottom: "15px"}}>
-              <label style={{display: "block", marginBottom: "5px", fontWeight: "bold", fontSize: "14px"}}>
-                💵 Valor Cancha (opcional)
-              </label>
-              <input
-                style={styles.input}
-                type="number"
-                placeholder="Valor"
-                value={form.cost}
-                onChange={e => setForm({...form, cost: e.target.value})}
-              />
+          {/* Gratis / Pago o Consumo mínimo */}
+          {step >= 5 && (
+            <div style={styles.questionGroup}>
+              {/* Si es Bar o Cafetería, preguntar por consumo mínimo */}
+              {(eventData.lugarOption === "Bar" || eventData.lugarOption === "Cafetería") ? (
+                <>
+                  <h2 style={styles.questionTitle}>Consumo mínimo ?</h2>
+                  <div style={styles.options}>
+                    <button
+                      type="button"
+                      style={styles.sketchBtn(!eventData.gratis, false, eventData.gratis)}
+                      onClick={() => handleGratisChange(false)}
+                    >
+                      Si
+                    </button>
+                    <button
+                      type="button"
+                      style={styles.sketchBtn(eventData.gratis, false, !eventData.gratis)}
+                      onClick={() => handleGratisChange(true)}
+                    >
+                      No
+                    </button>
+                  </div>
+                  {!eventData.gratis && (
+                    <div style={{ ...styles.options, marginTop: 15 }}>
+                      <input
+                        type="number"
+                        style={styles.valorInput}
+                        placeholder="Consumo mínimo por persona"
+                        value={eventData.costoNumber || ""}
+                        onChange={(e) => handleCostoInput(e.target.value)}
+                        min={0}
+                      />
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <h2 style={styles.questionTitle}>Gratis ?</h2>
+                  <div style={styles.options}>
+                    <button
+                      type="button"
+                      style={styles.sketchBtn(eventData.gratis, false, !eventData.gratis)}
+                      onClick={() => handleGratisChange(true)}
+                    >
+                      Si
+                    </button>
+                    <button
+                      type="button"
+                      style={styles.sketchBtn(!eventData.gratis, false, eventData.gratis)}
+                      onClick={() => handleGratisChange(false)}
+                    >
+                      No
+                    </button>
+                  </div>
+                  {!eventData.gratis && (
+                    <div style={{ ...styles.options, marginTop: 15 }}>
+                      <input
+                        type="number"
+                        style={styles.valorInput}
+                        placeholder="Valor por persona"
+                        value={eventData.costoNumber || ""}
+                        onChange={(e) => handleCostoInput(e.target.value)}
+                        min={0}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
             </div>
+          )}
 
-            <div style={styles.navigationButtons}>
-              <button style={styles.btn} onClick={goBack} type="button">← Atrás</button>
-              <button style={styles.btnActive} type="submit">Crear Evento ✓</button>
-            </div>
-          </form>
-        )}
-
-        {/* PASO 5: Votación */}
-        {step === "voting" && form.mode === "voting" && (
-          <form onSubmit={submit}>
-            <h3>Crea Opciones para Votación</h3>
-            <div style={styles.section}>
-              <h4>Opciones de Fecha</h4>
-              <input
-                style={{...styles.input, marginBottom: "5px"}}
-                type="datetime-local"
-                id="dateOption"
-              />
+          {/* Botón crear evento */}
+          {step >= 5 && (eventData.gratis || (!eventData.gratis && eventData.costoNumber > 0)) && (
+            <div style={{ textAlign: "center", marginTop: 20 }}>
               <button
-                style={styles.btn}
-                type="button"
-                onClick={() => {
-                  const input = document.getElementById("dateOption");
-                  if (input.value) {
-                    handleAddPollOption("dates", input.value);
-                    input.value = "";
-                  }
+                type="submit"
+                style={{
+                  background: getCardGradient(),
+                  border: "3px solid #000",
+                  padding: "15px 40px",
+                  fontSize: "20px",
+                  fontWeight: "bold",
+                  cursor: "pointer",
+                  textTransform: "uppercase",
+                  boxShadow: "4px 4px 0 #000",
+                  fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                  color: "#000",
+                  transition: "all 0.2s"
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = "translate(-2px, -2px)";
+                  e.currentTarget.style.boxShadow = "6px 6px 0 #000";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "translate(0, 0)";
+                  e.currentTarget.style.boxShadow = "4px 4px 0 #000";
                 }}
               >
-                Agregar Fecha
+                Crear Evento ✓
               </button>
-              <ul style={styles.list}>
-                {form.pollOptions.dates.map((date, i) => (
-                  <li key={i} style={styles.listItem}>{date}</li>
-                ))}
-              </ul>
             </div>
-
-            <div style={styles.section}>
-              <h4>Opciones de Lugar</h4>
-              <input
-                style={{...styles.input, marginBottom: "5px"}}
-                placeholder="Lugar"
-                id="locationOption"
-              />
-              <button
-                style={styles.btn}
-                type="button"
-                onClick={() => {
-                  const input = document.getElementById("locationOption");
-                  if (input.value) {
-                    handleAddPollOption("locations", input.value);
-                    input.value = "";
-                  }
-                }}
-              >
-                Agregar Lugar
-              </button>
-              <ul style={styles.list}>
-                {form.pollOptions.locations.map((loc, i) => (
-                  <li key={i} style={styles.listItem}>{loc}</li>
-                ))}
-              </ul>
-            </div>
-
-            <div style={styles.navigationButtons}>
-              <button style={styles.btn} onClick={goBack} type="button">← Atrás</button>
-              <button style={styles.btnActive} type="submit">Publicar Propuesta ✓</button>
-            </div>
-          </form>
-        )}
+          )}
+        </form>
       </div>
     </div>
   );
