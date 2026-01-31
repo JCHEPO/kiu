@@ -2,6 +2,8 @@ import React, { useState, useContext, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthContext } from "../context/AuthContext";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+
 export default function CreateEventPage() {
   const { fetchWithAuth } = useContext(AuthContext);
   const navigate = useNavigate();
@@ -410,7 +412,7 @@ export default function CreateEventPage() {
     };
 
     try {
-      const res = await fetchWithAuth("http://localhost:3000/api/events", {
+      const res = await fetchWithAuth(`${API_URL}/api/events`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useContext } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { AuthContext } from "../context/AuthContext";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+
 export default function EventDetailPage() {
   const { id } = useParams();
   const { auth, fetchWithAuth } = useContext(AuthContext);
@@ -46,7 +48,7 @@ export default function EventDetailPage() {
 
   const fetchEventDetails = async () => {
     try {
-      const res = await fetchWithAuth(`http://localhost:3000/api/events/${id}`);
+      const res = await fetchWithAuth(`${API_URL}/api/events/${id}`);
       if (!res.ok) throw new Error("Error al cargar evento");
       const data = await res.json();
       setEvent(data);
@@ -60,7 +62,7 @@ export default function EventDetailPage() {
 
   const handleJoinEvent = async () => {
     try {
-      const res = await fetchWithAuth(`http://localhost:3000/api/events/${id}/join`, {
+      const res = await fetchWithAuth(`${API_URL}/api/events/${id}/join`, {
         method: "POST"
       });
       if (!res.ok) throw new Error("Error al unirse");
@@ -73,7 +75,7 @@ export default function EventDetailPage() {
 
   const handleLeaveEvent = async () => {
     try {
-      const res = await fetchWithAuth(`http://localhost:3000/api/events/${id}/leave`, {
+      const res = await fetchWithAuth(`${API_URL}/api/events/${id}/leave`, {
         method: "POST"
       });
       if (!res.ok) throw new Error("Error al salir");
@@ -88,7 +90,7 @@ export default function EventDetailPage() {
     if (!window.confirm("¿Estás seguro de eliminar este evento?")) return;
 
     try {
-      const res = await fetchWithAuth(`http://localhost:3000/api/events/${id}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/events/${id}`, {
         method: "DELETE"
       });
       if (!res.ok) throw new Error("Error al eliminar");
@@ -105,7 +107,7 @@ export default function EventDetailPage() {
     if (!newMessage.trim()) return;
 
     try {
-      const res = await fetchWithAuth(`http://localhost:3000/api/events/${id}/messages`, {
+      const res = await fetchWithAuth(`${API_URL}/api/events/${id}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: newMessage })
@@ -124,7 +126,7 @@ export default function EventDetailPage() {
     if (!newItem.trim()) return;
 
     try {
-      const res = await fetchWithAuth(`http://localhost:3000/api/events/${id}/items`, {
+      const res = await fetchWithAuth(`${API_URL}/api/events/${id}/items`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newItem })
@@ -140,7 +142,7 @@ export default function EventDetailPage() {
 
   const handleClaimItem = async (itemId) => {
     try {
-      const res = await fetchWithAuth(`http://localhost:3000/api/events/${id}/items/${itemId}/claim`, {
+      const res = await fetchWithAuth(`${API_URL}/api/events/${id}/items/${itemId}/claim`, {
         method: "POST"
       });
       if (!res.ok) throw new Error("Error al reclamar item");

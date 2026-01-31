@@ -2,6 +2,8 @@ import React, { useState, useEffect, useContext, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthContext } from "../context/AuthContext";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+
 // LoginModal with login + register views
 function LoginModal({ onClose, onLoginSuccess }) {
   const { login } = useContext(AuthContext);
@@ -18,7 +20,7 @@ function LoginModal({ onClose, onLoginSuccess }) {
   const handleLogin = async () => {
     setError("");
     try {
-      const res = await fetch("http://localhost:3000/api/auth/login", {
+      const res = await fetch(`${API_URL}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: form.email, password: form.password })
@@ -38,7 +40,7 @@ function LoginModal({ onClose, onLoginSuccess }) {
   const handleRegister = async () => {
     setError("");
     try {
-      const res = await fetch("http://localhost:3000/api/auth/register", {
+      const res = await fetch(`${API_URL}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form)
@@ -49,7 +51,7 @@ function LoginModal({ onClose, onLoginSuccess }) {
         return;
       }
       // Auto-login after register
-      const loginRes = await fetch("http://localhost:3000/api/auth/login", {
+      const loginRes = await fetch(`${API_URL}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: form.email, password: form.password })
@@ -544,7 +546,7 @@ export default function HomePage() {
 
   const fetchEvents = async () => {
     try {
-      const res = await fetch("http://localhost:3000/api/events");
+      const res = await fetch(`${API_URL}/api/events`);
       const data = await res.json();
       setEvents(data);
     } catch (error) {
