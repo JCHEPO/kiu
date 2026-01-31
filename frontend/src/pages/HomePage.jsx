@@ -356,14 +356,14 @@ function EventPostItCard({ event, isLoggedIn }) {
       flex: 1
     },
     titleLine: {
-      fontSize: "22px",
+      fontSize: "44px",
       fontWeight: 900,
       color: "#000",
       lineHeight: 1.1,
       fontFamily: '"Bricolage Grotesque", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
     },
     rating: {
-      fontSize: "28px",
+      fontSize: "24px",
       fontWeight: "bold",
       color: "#000",
       fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
@@ -373,9 +373,9 @@ function EventPostItCard({ event, isLoggedIn }) {
     bottomSection: {
       display: "flex",
       justifyContent: "space-between",
-      alignItems: "flex-end",
+      alignItems: "flex-start",
       gap: "16px",
-      fontSize: "14px",
+      fontSize: "16px",
       fontWeight: "bold",
       fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
       color: "#000"
@@ -415,7 +415,7 @@ function EventPostItCard({ event, isLoggedIn }) {
           {event.category === "Partido" && (
             <>
               <div style={cardStyles.titleLine}>Partido de</div>
-              <div style={{ ...cardStyles.titleLine, fontSize: "32px" }}>
+              <div style={{ ...cardStyles.titleLine, fontSize: "40px" }}>
                 {event.title.replace("Partido de ", "")}
               </div>
             </>
@@ -425,9 +425,10 @@ function EventPostItCard({ event, isLoggedIn }) {
             <div style={cardStyles.titleLine}>{event.title}</div>
           )}
 
+
           {event.subcategory && (
-            <div style={{ ...cardStyles.titleLine, fontSize: "16px", marginTop: "4px", fontWeight: 700 }}>
-              {event.subcategory}
+            <div style={{ ...cardStyles.titleLine, fontSize: "28px", marginTop: "4px", fontWeight: 999 }}>
+              {/^\d+$/.test(event.subcategory) ? `Para ${event.subcategory} personas` : event.subcategory}
             </div>
           )}
         </div>
@@ -576,10 +577,13 @@ export default function HomePage() {
       backgroundColor: "#e8e8e8"
     },
     topBar: {
+      position: "sticky",
+      top: 0,
+      zIndex: 50,
       display: "flex",
       justifyContent: "space-between",
       alignItems: "center",
-      padding: "20px 40px",
+      padding: "10px 40px",
       background: "rgba(255,255,255,0.9)",
       borderBottom: "3px solid #333"
     },
@@ -887,37 +891,37 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Filter Chips */}
-        <div style={styles.chipsContainer}>
-          {Object.keys(chipCategories).map((chip) => (
-            <button
-              key={chip}
-              style={activeChip === chip ? styles.chipActive : styles.chip}
-              onClick={() => handleChipClick(chip)}
-            >
-              {chip}
-            </button>
-          ))}
-        </div>
-
-        {/* Sub-chips */}
-        {activeChip && chipCategories[activeChip] && (
-          <div style={styles.subChipsContainer}>
-            {chipCategories[activeChip].subs.map((sub) => (
-              <button
-                key={sub}
-                style={activeSubChip === sub ? styles.subChipActive : styles.subChip}
-                onClick={() => handleSubChipClick(sub)}
-              >
-                {sub}
-              </button>
-            ))}
-          </div>
-        )}
-
         {/* Events Grid */}
         <div style={styles.eventsSection} id="events-section">
           <h2 style={styles.sectionTitle}>Eventos Disponibles</h2>
+
+          {/* Filter Chips */}
+          <div style={styles.chipsContainer}>
+            {Object.keys(chipCategories).map((chip) => (
+              <button
+                key={chip}
+                style={activeChip === chip ? styles.chipActive : styles.chip}
+                onClick={() => handleChipClick(chip)}
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+
+          {/* Sub-chips */}
+          {activeChip && chipCategories[activeChip] && (
+            <div style={styles.subChipsContainer}>
+              {chipCategories[activeChip].subs.map((sub) => (
+                <button
+                  key={sub}
+                  style={activeSubChip === sub ? styles.subChipActive : styles.subChip}
+                  onClick={() => handleSubChipClick(sub)}
+                >
+                  {sub}
+                </button>
+              ))}
+            </div>
+          )}
 
           {filteredEvents.length === 0 ? (
             <div style={styles.emptyState}>
