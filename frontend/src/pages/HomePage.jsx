@@ -39,6 +39,14 @@ function LoginModal({ onClose, onLoginSuccess }) {
 
   const handleRegister = async () => {
     setError("");
+    if (!form.genero) {
+      setError("Selecciona tu genero");
+      return;
+    }
+    if (!form.fechaNacimiento) {
+      setError("Ingresa tu fecha de nacimiento");
+      return;
+    }
     try {
       const res = await fetch(`${API_URL}/api/auth/register`, {
         method: "POST",
@@ -251,6 +259,59 @@ function LoginModal({ onClose, onLoginSuccess }) {
               placeholder="Apellido"
               onChange={e => setForm({ ...form, apellido: e.target.value })}
             />
+
+            {/* Selector de género */}
+            <div style={{ marginBottom: "12px" }}>
+              <div style={{
+                fontSize: "14px",
+                color: "#666",
+                marginBottom: "8px",
+                fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive'
+              }}>
+                Genero
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                {["Hombre", "Mujer", "LGTBQ+"].map(g => (
+                  <button
+                    key={g}
+                    type="button"
+                    style={{
+                      flex: 1,
+                      padding: "10px",
+                      border: form.genero === g ? "2px solid #000" : "2px solid #ddd",
+                      borderRadius: "8px",
+                      background: form.genero === g ? "#000" : "#fff",
+                      color: form.genero === g ? "#fff" : "#333",
+                      fontSize: "13px",
+                      fontWeight: "bold",
+                      cursor: "pointer",
+                      fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive'
+                    }}
+                    onClick={() => setForm({ ...form, genero: g })}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Fecha de nacimiento */}
+            <div style={{ marginBottom: "12px" }}>
+              <div style={{
+                fontSize: "14px",
+                color: "#666",
+                marginBottom: "8px",
+                fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive'
+              }}>
+                Fecha de nacimiento
+              </div>
+              <input
+                style={modalStyles.input}
+                type="date"
+                onChange={e => setForm({ ...form, fechaNacimiento: e.target.value })}
+              />
+            </div>
+
             <input
               style={modalStyles.input}
               placeholder="Email"
@@ -483,9 +544,9 @@ export default function HomePage() {
       subFilter: (ev, sub) => ev.title?.toLowerCase().includes(sub.toLowerCase())
     },
     Cartas: {
-      filter: (ev) => ev.category === "Social" && ["uno", "pokemon", "magic", "one piece", "cartas", "tcg"].some(k => ev.title?.toLowerCase().includes(k)),
-      subs: ["Uno", "Cartas Pokemon", "Cartas Magic", "Cartas One Piece"],
-      subFilter: (ev, sub) => ev.title?.toLowerCase().includes(sub.toLowerCase().replace("cartas ", ""))
+      filter: (ev) => ev.category === "Social" && ["cartas", "pokemon", "magic", "carioca", "uno"].some(k => ev.title?.toLowerCase().includes(k)),
+      subs: ["Pokemon", "Magic", "Carioca", "Uno"],
+      subFilter: (ev, sub) => ev.title?.toLowerCase().includes(sub.toLowerCase())
     },
     "Mundo Cafe": {
       filter: (ev) => ["cafe", "café", "degustacion", "degustación"].some(k => ev.title?.toLowerCase().includes(k) || ev.location?.toLowerCase().includes(k) || ev.description?.toLowerCase().includes(k)),
@@ -542,11 +603,15 @@ export default function HomePage() {
 
   useEffect(() => {
     fetchEvents();
-  }, []);
+  }, [auth]);
 
   const fetchEvents = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/events`);
+      let url = `${API_URL}/api/events`;
+      if (auth?.user?.genero) {
+        url += `?genero=${encodeURIComponent(auth.user.genero)}`;
+      }
+      const res = await fetch(url);
       const data = await res.json();
       setEvents(data);
     } catch (error) {

@@ -1,13 +1,37 @@
 import express from "express";
 import { authenticate, authorize } from "../middleware/auth.middleware.js";
 import Event from "../models/Event.js";
+import User from "../models/User.js";
 
 const router = express.Router();
 
-// GET /api/events - Lista de eventos (público)
+// GET /api/events - Lista de eventos (público, con filtro opcional por género)
 router.get("/", async (req, res) => {
   try {
-    const events = await Event.find().populate("creator", "email nombre apellido");
+    const { genero } = req.query;
+    let filter = {};
+
+    if (genero) {
+      if (genero === "Hombre") {
+        filter.$or = [
+          { restriccionGenero: { $in: ["Solo hombres", "Mixto"] } },
+          { restriccionGenero: { $exists: false } }
+        ];
+      } else if (genero === "Mujer") {
+        filter.$or = [
+          { restriccionGenero: { $in: ["Solo mujeres", "Mixto"] } },
+          { restriccionGenero: { $exists: false } }
+        ];
+      } else {
+        // LGTBQ+ u otro: solo Mixto
+        filter.$or = [
+          { restriccionGenero: "Mixto" },
+          { restriccionGenero: { $exists: false } }
+        ];
+      }
+    }
+
+    const events = await Event.find(filter).populate("creator", "email nombre apellido");
     res.json(events);
   } catch (err) {
     res.status(500).json({ error: "Error al obtener eventos" });
@@ -16,7 +40,7 @@ router.get("/", async (req, res) => {
 
 // POST /api/events - Crear evento (todos los usuarios logueados)
 router.post("/", authenticate, async (req, res) => {
-  const { title, date, description, location, maxParticipants, category, subcategory, cost } = req.body;
+  const { title, date, description, location, maxParticipants, category, subcategory, cost, restriccionGenero } = req.body;
   try {
     const event = await Event.create({
       title,
@@ -27,6 +51,7 @@ router.post("/", authenticate, async (req, res) => {
       category,
       subcategory,
       cost: cost || 0,
+      restriccionGenero: restriccionGenero || "Mixto",
       creator: req.user.id,
       participants: [req.user.id],
       messages: [],
@@ -87,6 +112,15 @@ router.post("/:id/join", authenticate, async (req, res) => {
 
     if (!event) {
       return res.status(404).json({ error: "Evento no encontrado" });
+    }
+
+    // Validar restricción de género
+    const user = await User.findById(req.user.id);
+    if (event.restriccionGenero === "Solo hombres" && user.genero !== "Hombre") {
+      return res.status(403).json({ error: "Este evento es solo para hombres" });
+    }
+    if (event.restriccionGenero === "Solo mujeres" && user.genero !== "Mujer") {
+      return res.status(403).json({ error: "Este evento es solo para mujeres" });
     }
 
     if (event.participants.includes(req.user.id)) {

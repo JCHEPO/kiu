@@ -241,10 +241,11 @@ export default function EventDetailPage() {
 
   const titleParts = getTitleParts();
   const currentParticipants = event.participants?.length || 0;
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 600;
 
   const styles = {
     wrapper: {
-      padding: "40px",
+      padding: isMobile ? "12px" : "40px",
       backgroundImage: "url('/assets/distorted-grid-line-png-pattern.jpg')",
       backgroundSize: "cover",
       backgroundPosition: "center",
@@ -259,50 +260,50 @@ export default function EventDetailPage() {
     backButton: {
       background: "#fff",
       border: "3px solid #000",
-      padding: "10px 20px",
-      fontSize: "16px",
+      padding: isMobile ? "8px 14px" : "10px 20px",
+      fontSize: isMobile ? "14px" : "16px",
       fontWeight: "bold",
       cursor: "pointer",
       boxShadow: "3px 3px 0 #000",
       fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
-      marginBottom: "30px",
+      marginBottom: isMobile ? "16px" : "30px",
       textTransform: "uppercase"
     },
     eventCard: {
       background: getCardGradient(),
-      borderRadius: "20px",
-      padding: "40px",
-      marginBottom: "30px",
+      borderRadius: isMobile ? "14px" : "20px",
+      padding: isMobile ? "20px" : "40px",
+      marginBottom: isMobile ? "16px" : "30px",
       border: "3px solid #333",
       position: "relative"
     },
     rating: {
       position: "absolute",
-      top: "30px",
-      right: "30px",
-      fontSize: "32px",
+      top: isMobile ? "16px" : "30px",
+      right: isMobile ? "16px" : "30px",
+      fontSize: isMobile ? "22px" : "32px",
       fontWeight: "bold",
       color: "#000"
     },
     titleContainer: {
-      marginBottom: "30px"
+      marginBottom: isMobile ? "16px" : "30px"
     },
     titleLine1: {
-      fontSize: "28px",
+      fontSize: isMobile ? "20px" : "28px",
       fontWeight: 900,
       color: "#000",
       lineHeight: 1,
       fontFamily: '"Bricolage Grotesque", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
     },
     titleLine2: {
-      fontSize: "48px",
+      fontSize: isMobile ? "32px" : "48px",
       fontWeight: 900,
       color: "#000",
       lineHeight: 1,
       fontFamily: '"Bricolage Grotesque", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
     },
     titleLine3: {
-      fontSize: "24px",
+      fontSize: isMobile ? "18px" : "24px",
       fontWeight: 700,
       color: "#000",
       lineHeight: 1,
@@ -311,28 +312,29 @@ export default function EventDetailPage() {
     eventInfo: {
       display: "flex",
       justifyContent: "space-between",
-      marginTop: "30px",
-      fontSize: "18px",
+      marginTop: isMobile ? "16px" : "30px",
+      fontSize: isMobile ? "14px" : "18px",
       fontWeight: "bold",
       fontFamily: '"Bricolage Grotesque", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
     },
     actionsContainer: {
       display: "flex",
-      gap: "15px",
-      marginBottom: "30px",
+      gap: isMobile ? "10px" : "15px",
+      marginBottom: isMobile ? "16px" : "30px",
       flexWrap: "wrap"
     },
     actionButton: {
       background: "#fff",
       border: "3px solid #000",
-      padding: "15px 30px",
-      fontSize: "18px",
+      padding: isMobile ? "10px 18px" : "15px 30px",
+      fontSize: isMobile ? "14px" : "18px",
       fontWeight: "bold",
       cursor: "pointer",
       boxShadow: "3px 3px 0 #000",
       fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
       textTransform: "uppercase",
-      transition: "all 0.2s"
+      transition: "all 0.2s",
+      flex: isMobile ? "1" : undefined
     },
     deleteButton: {
       background: "#ff6b6b",
@@ -342,99 +344,121 @@ export default function EventDetailPage() {
       opacity: 0.5,
       cursor: "not-allowed"
     },
+    // Desktop: 2 columns (countdown small | muro big)
+    // Mobile: single column, reordered via separate render
     gridContainer: {
       display: "grid",
-      gridTemplateColumns: "1fr 2fr",
-      gap: "30px",
-      marginBottom: "30px"
+      gridTemplateColumns: isMobile ? "1fr" : "1fr 2fr",
+      gap: isMobile ? "12px" : "30px",
+      marginBottom: isMobile ? "12px" : "30px"
+    },
+    // Mobile bottom row: countdown + participants side by side, compact
+    gridContainerCompact: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: "12px",
+      marginBottom: "12px"
     },
     section: {
       background: "rgba(255, 255, 255, 0.8)",
-      borderRadius: "15px",
-      padding: "30px",
+      borderRadius: isMobile ? "12px" : "15px",
+      padding: isMobile ? "16px" : "30px",
       border: "3px solid #333"
     },
+    sectionCompact: {
+      background: "rgba(255, 255, 255, 0.8)",
+      borderRadius: "12px",
+      padding: "12px",
+      border: "2px solid #333"
+    },
     sectionTitle: {
-      fontSize: "24px",
+      fontSize: isMobile ? "18px" : "24px",
       fontWeight: 900,
-      marginBottom: "20px",
+      marginBottom: isMobile ? "12px" : "20px",
+      fontFamily: '"Bricolage Grotesque", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      textTransform: "uppercase"
+    },
+    sectionTitleCompact: {
+      fontSize: "13px",
+      fontWeight: 900,
+      marginBottom: "8px",
       fontFamily: '"Bricolage Grotesque", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       textTransform: "uppercase"
     },
     countdown: {
       display: "flex",
-      gap: "20px",
+      gap: isMobile ? "12px" : "20px",
       justifyContent: "center",
-      marginTop: "20px"
+      marginTop: isMobile ? "0" : "20px"
     },
     countdownItem: {
       textAlign: "center"
     },
     countdownNumber: {
-      fontSize: "48px",
+      fontSize: isMobile ? "22px" : "48px",
       fontWeight: 900,
       fontFamily: '"Bricolage Grotesque", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       lineHeight: 1
     },
     countdownLabel: {
-      fontSize: "14px",
+      fontSize: isMobile ? "10px" : "14px",
       fontWeight: "bold",
       fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
       textTransform: "uppercase"
     },
     chatWall: {
-      maxHeight: "400px",
+      maxHeight: isMobile ? "300px" : "400px",
       overflowY: "auto",
-      marginBottom: "20px"
+      marginBottom: isMobile ? "12px" : "20px"
     },
     message: {
       background: "#fff",
       border: "2px solid #333",
       borderRadius: "10px",
-      padding: "15px",
-      marginBottom: "10px"
+      padding: isMobile ? "10px" : "15px",
+      marginBottom: isMobile ? "8px" : "10px"
     },
     messageSender: {
       fontWeight: "bold",
-      fontSize: "14px",
+      fontSize: isMobile ? "13px" : "14px",
       marginBottom: "5px",
       fontFamily: '"Bricolage Grotesque", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
     },
     messageText: {
-      fontSize: "16px",
+      fontSize: isMobile ? "14px" : "16px",
       fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive'
     },
     messageForm: {
       display: "flex",
-      gap: "10px"
+      gap: isMobile ? "8px" : "10px"
     },
     input: {
       flex: 1,
       border: "3px solid #000",
-      padding: "12px",
-      fontSize: "16px",
+      padding: isMobile ? "10px" : "12px",
+      fontSize: isMobile ? "14px" : "16px",
       fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
       borderRadius: "5px"
     },
     sendButton: {
       background: "#fff",
       border: "3px solid #000",
-      padding: "12px 20px",
-      fontSize: "16px",
+      padding: isMobile ? "10px 14px" : "12px 20px",
+      fontSize: isMobile ? "14px" : "16px",
       fontWeight: "bold",
       cursor: "pointer",
       boxShadow: "3px 3px 0 #000",
       fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive'
     },
     itemsList: {
-      marginBottom: "20px"
+      marginBottom: isMobile ? "12px" : "20px"
     },
     item: {
       background: "#fff",
       border: "2px solid #333",
       borderRadius: "10px",
-      padding: "15px",
-      marginBottom: "10px",
+      padding: isMobile ? "10px 12px" : "15px",
+      marginBottom: isMobile ? "8px" : "10px",
       display: "flex",
       justifyContent: "space-between",
       alignItems: "center"
@@ -444,20 +468,20 @@ export default function EventDetailPage() {
       borderColor: "#4caf50"
     },
     itemName: {
-      fontSize: "16px",
+      fontSize: isMobile ? "14px" : "16px",
       fontWeight: "bold",
       fontFamily: '"Bricolage Grotesque", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
     },
     itemClaimer: {
-      fontSize: "14px",
+      fontSize: isMobile ? "12px" : "14px",
       fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
       color: "#666"
     },
     claimButton: {
       background: "#fff",
       border: "2px solid #000",
-      padding: "8px 15px",
-      fontSize: "14px",
+      padding: isMobile ? "6px 10px" : "8px 15px",
+      fontSize: isMobile ? "12px" : "14px",
       fontWeight: "bold",
       cursor: "pointer",
       fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
@@ -466,15 +490,15 @@ export default function EventDetailPage() {
     participantRow: {
       display: "flex",
       alignItems: "center",
-      gap: "10px",
-      padding: "12px 15px",
+      gap: isMobile ? "6px" : "10px",
+      padding: isMobile ? "8px 10px" : "12px 15px",
       background: "#fff",
       border: "2px solid #333",
       borderRadius: "10px",
-      marginBottom: "8px"
+      marginBottom: isMobile ? "6px" : "8px"
     },
     participantName: {
-      fontSize: "16px",
+      fontSize: isMobile ? "13px" : "16px",
       fontWeight: 700,
       fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
       color: "#000"
@@ -485,7 +509,7 @@ export default function EventDetailPage() {
       color: "#fff",
       padding: "2px 10px",
       borderRadius: "20px",
-      fontSize: "11px",
+      fontSize: isMobile ? "9px" : "11px",
       fontWeight: "bold",
       fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
       textTransform: "uppercase",
@@ -556,135 +580,266 @@ export default function EventDetailPage() {
           )}
         </div>
 
-        {/* Grid with Countdown, Chat, and Items */}
-        <div style={styles.gridContainer}>
-          {/* Countdown */}
-          <div style={styles.section}>
-            <h3 style={styles.sectionTitle}>Cuenta Regresiva</h3>
-            <div style={styles.countdown}>
-              <div style={styles.countdownItem}>
-                <div style={styles.countdownNumber}>{countdown.days}</div>
-                <div style={styles.countdownLabel}>Días</div>
-              </div>
-              <div style={styles.countdownItem}>
-                <div style={styles.countdownNumber}>{countdown.hours}</div>
-                <div style={styles.countdownLabel}>Horas</div>
-              </div>
-              <div style={styles.countdownItem}>
-                <div style={styles.countdownNumber}>{countdown.minutes}</div>
-                <div style={styles.countdownLabel}>Min</div>
-              </div>
-              <div style={styles.countdownItem}>
-                <div style={styles.countdownNumber}>{countdown.seconds}</div>
-                <div style={styles.countdownLabel}>Seg</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Chat Wall */}
-          <div style={styles.section}>
-            <h3 style={styles.sectionTitle}>Muro</h3>
-            <div style={styles.chatWall}>
-              {event.messages && event.messages.length > 0 ? (
-                event.messages.map((msg, idx) => (
-                  <div key={idx} style={styles.message}>
-                    <div style={styles.messageSender}>{msg.sender?.name || "Anónimo"}</div>
-                    <div style={styles.messageText}>{msg.text}</div>
-                  </div>
-                ))
-              ) : (
-                <div style={{ textAlign: "center", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
-                  No hay mensajes aún
-                </div>
-              )}
-            </div>
-            <form style={styles.messageForm} onSubmit={handleSendMessage}>
-              <input
-                style={styles.input}
-                type="text"
-                placeholder="Escribe un mensaje..."
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-              />
-              <button type="submit" style={styles.sendButton}>Enviar</button>
-            </form>
-          </div>
-        </div>
-
-        {/* Participants + Items grid */}
-        <div style={styles.gridContainer}>
-          {/* Participantes */}
-          <div style={styles.section}>
-            <h3 style={styles.sectionTitle}>Participantes</h3>
-            {/* Creator first */}
-            {event.creator && (
-              <div style={styles.participantRow}>
-                <div style={styles.participantName}>
-                  {event.creator.nombre || event.creator.email?.split("@")[0] || "Organizador"}
-                </div>
-                <span style={styles.creatorTag}>Creador</span>
-              </div>
-            )}
-            {/* Other participants */}
-            {event.participants?.filter(p => p._id !== event.creator?._id && p._id !== event.creator).map((p) => (
-              <div key={p._id} style={styles.participantRow}>
-                <div style={styles.participantName}>
-                  {p.nombre || p.email?.split("@")[0] || "Participante"}
-                </div>
-              </div>
-            ))}
-            {(!event.participants || event.participants.filter(p => p._id !== event.creator?._id).length === 0) && (
-              <div style={{ textAlign: "center", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', marginTop: "10px" }}>
-                Aun no hay mas participantes
-              </div>
-            )}
-          </div>
-
-          {/* What We're Bringing */}
-          <div style={styles.section}>
-            <h3 style={styles.sectionTitle}>Que Llevamos?</h3>
-            <div style={styles.itemsList}>
-              {event.items && event.items.length > 0 ? (
-                event.items.map((item) => (
-                  <div
-                    key={item._id}
-                    style={{...styles.item, ...(item.claimedBy && styles.itemClaimed)}}
-                  >
-                    <div>
-                      <div style={styles.itemName}>{item.name}</div>
-                      {item.claimedBy && (
-                        <div style={styles.itemClaimer}>
-                          {item.claimedBy.name || "Alguien"} lo lleva
-                        </div>
-                      )}
+        {isMobile ? (
+          <>
+            {/* MOBILE BENTO: Muro first (priority) */}
+            <div style={{ marginBottom: "12px" }}>
+              <div style={styles.section}>
+                <h3 style={styles.sectionTitle}>Muro</h3>
+                <div style={styles.chatWall}>
+                  {event.messages && event.messages.length > 0 ? (
+                    event.messages.map((msg, idx) => (
+                      <div key={idx} style={styles.message}>
+                        <div style={styles.messageSender}>{msg.sender?.name || "Anónimo"}</div>
+                        <div style={styles.messageText}>{msg.text}</div>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ textAlign: "center", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
+                      No hay mensajes aún
                     </div>
-                    {!item.claimedBy && (isCreator || isParticipant) && (
-                      <button style={styles.claimButton} onClick={() => handleClaimItem(item._id)}>
-                        Yo llevo
-                      </button>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <div style={{ textAlign: "center", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
-                  {isCreator ? "Agrega items que se necesiten" : "No hay items aun"}
+                  )}
                 </div>
-              )}
+                <form style={styles.messageForm} onSubmit={handleSendMessage}>
+                  <input
+                    style={styles.input}
+                    type="text"
+                    placeholder="Escribe un mensaje..."
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                  />
+                  <button type="submit" style={styles.sendButton}>Enviar</button>
+                </form>
+              </div>
             </div>
-            {isCreator && (
-              <form style={styles.messageForm} onSubmit={handleAddItem}>
-                <input
-                  style={styles.input}
-                  type="text"
-                  placeholder="Agregar item necesario..."
-                  value={newItem}
-                  onChange={(e) => setNewItem(e.target.value)}
-                />
-                <button type="submit" style={styles.sendButton}>Agregar</button>
-              </form>
-            )}
-          </div>
-        </div>
+
+            {/* MOBILE BENTO: Que Llevamos second (priority) */}
+            <div style={{ marginBottom: "12px" }}>
+              <div style={styles.section}>
+                <h3 style={styles.sectionTitle}>Que Llevamos?</h3>
+                <div style={styles.itemsList}>
+                  {event.items && event.items.length > 0 ? (
+                    event.items.map((item) => (
+                      <div
+                        key={item._id}
+                        style={{...styles.item, ...(item.claimedBy && styles.itemClaimed)}}
+                      >
+                        <div>
+                          <div style={styles.itemName}>{item.name}</div>
+                          {item.claimedBy && (
+                            <div style={styles.itemClaimer}>
+                              {item.claimedBy.name || "Alguien"} lo lleva
+                            </div>
+                          )}
+                        </div>
+                        {!item.claimedBy && (isCreator || isParticipant) && (
+                          <button style={styles.claimButton} onClick={() => handleClaimItem(item._id)}>
+                            Yo llevo
+                          </button>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ textAlign: "center", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
+                      {isCreator ? "Agrega items que se necesiten" : "No hay items aun"}
+                    </div>
+                  )}
+                </div>
+                {isCreator && (
+                  <form style={styles.messageForm} onSubmit={handleAddItem}>
+                    <input
+                      style={styles.input}
+                      type="text"
+                      placeholder="Agregar item necesario..."
+                      value={newItem}
+                      onChange={(e) => setNewItem(e.target.value)}
+                    />
+                    <button type="submit" style={styles.sendButton}>Agregar</button>
+                  </form>
+                )}
+              </div>
+            </div>
+
+            {/* MOBILE BENTO: Countdown + Participants compact side-by-side */}
+            <div style={styles.gridContainerCompact}>
+              <div style={styles.sectionCompact}>
+                <h3 style={styles.sectionTitleCompact}>Cuenta Regresiva</h3>
+                <div style={styles.countdown}>
+                  <div style={styles.countdownItem}>
+                    <div style={styles.countdownNumber}>{countdown.days}</div>
+                    <div style={styles.countdownLabel}>D</div>
+                  </div>
+                  <div style={styles.countdownItem}>
+                    <div style={styles.countdownNumber}>{countdown.hours}</div>
+                    <div style={styles.countdownLabel}>H</div>
+                  </div>
+                  <div style={styles.countdownItem}>
+                    <div style={styles.countdownNumber}>{countdown.minutes}</div>
+                    <div style={styles.countdownLabel}>M</div>
+                  </div>
+                  <div style={styles.countdownItem}>
+                    <div style={styles.countdownNumber}>{countdown.seconds}</div>
+                    <div style={styles.countdownLabel}>S</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={styles.sectionCompact}>
+                <h3 style={styles.sectionTitleCompact}>Participantes</h3>
+                {event.creator && (
+                  <div style={styles.participantRow}>
+                    <div style={styles.participantName}>
+                      {event.creator.nombre || event.creator.email?.split("@")[0] || "Organizador"}
+                    </div>
+                    <span style={styles.creatorTag}>Creador</span>
+                  </div>
+                )}
+                {event.participants?.filter(p => p._id !== event.creator?._id && p._id !== event.creator).map((p) => (
+                  <div key={p._id} style={styles.participantRow}>
+                    <div style={styles.participantName}>
+                      {p.nombre || p.email?.split("@")[0] || "Participante"}
+                    </div>
+                  </div>
+                ))}
+                {(!event.participants || event.participants.filter(p => p._id !== event.creator?._id).length === 0) && (
+                  <div style={{ textAlign: "center", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', fontSize: "12px", marginTop: "6px" }}>
+                    Sin participantes aun
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* DESKTOP: Original layout */}
+            <div style={styles.gridContainer}>
+              {/* Countdown */}
+              <div style={styles.section}>
+                <h3 style={styles.sectionTitle}>Cuenta Regresiva</h3>
+                <div style={styles.countdown}>
+                  <div style={styles.countdownItem}>
+                    <div style={styles.countdownNumber}>{countdown.days}</div>
+                    <div style={styles.countdownLabel}>Días</div>
+                  </div>
+                  <div style={styles.countdownItem}>
+                    <div style={styles.countdownNumber}>{countdown.hours}</div>
+                    <div style={styles.countdownLabel}>Horas</div>
+                  </div>
+                  <div style={styles.countdownItem}>
+                    <div style={styles.countdownNumber}>{countdown.minutes}</div>
+                    <div style={styles.countdownLabel}>Min</div>
+                  </div>
+                  <div style={styles.countdownItem}>
+                    <div style={styles.countdownNumber}>{countdown.seconds}</div>
+                    <div style={styles.countdownLabel}>Seg</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Chat Wall */}
+              <div style={styles.section}>
+                <h3 style={styles.sectionTitle}>Muro</h3>
+                <div style={styles.chatWall}>
+                  {event.messages && event.messages.length > 0 ? (
+                    event.messages.map((msg, idx) => (
+                      <div key={idx} style={styles.message}>
+                        <div style={styles.messageSender}>{msg.sender?.name || "Anónimo"}</div>
+                        <div style={styles.messageText}>{msg.text}</div>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ textAlign: "center", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
+                      No hay mensajes aún
+                    </div>
+                  )}
+                </div>
+                <form style={styles.messageForm} onSubmit={handleSendMessage}>
+                  <input
+                    style={styles.input}
+                    type="text"
+                    placeholder="Escribe un mensaje..."
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                  />
+                  <button type="submit" style={styles.sendButton}>Enviar</button>
+                </form>
+              </div>
+            </div>
+
+            {/* Participants + Items grid */}
+            <div style={styles.gridContainer}>
+              {/* Participantes */}
+              <div style={styles.section}>
+                <h3 style={styles.sectionTitle}>Participantes</h3>
+                {event.creator && (
+                  <div style={styles.participantRow}>
+                    <div style={styles.participantName}>
+                      {event.creator.nombre || event.creator.email?.split("@")[0] || "Organizador"}
+                    </div>
+                    <span style={styles.creatorTag}>Creador</span>
+                  </div>
+                )}
+                {event.participants?.filter(p => p._id !== event.creator?._id && p._id !== event.creator).map((p) => (
+                  <div key={p._id} style={styles.participantRow}>
+                    <div style={styles.participantName}>
+                      {p.nombre || p.email?.split("@")[0] || "Participante"}
+                    </div>
+                  </div>
+                ))}
+                {(!event.participants || event.participants.filter(p => p._id !== event.creator?._id).length === 0) && (
+                  <div style={{ textAlign: "center", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', marginTop: "10px" }}>
+                    Aun no hay mas participantes
+                  </div>
+                )}
+              </div>
+
+              {/* What We're Bringing */}
+              <div style={styles.section}>
+                <h3 style={styles.sectionTitle}>Que Llevamos?</h3>
+                <div style={styles.itemsList}>
+                  {event.items && event.items.length > 0 ? (
+                    event.items.map((item) => (
+                      <div
+                        key={item._id}
+                        style={{...styles.item, ...(item.claimedBy && styles.itemClaimed)}}
+                      >
+                        <div>
+                          <div style={styles.itemName}>{item.name}</div>
+                          {item.claimedBy && (
+                            <div style={styles.itemClaimer}>
+                              {item.claimedBy.name || "Alguien"} lo lleva
+                            </div>
+                          )}
+                        </div>
+                        {!item.claimedBy && (isCreator || isParticipant) && (
+                          <button style={styles.claimButton} onClick={() => handleClaimItem(item._id)}>
+                            Yo llevo
+                          </button>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ textAlign: "center", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
+                      {isCreator ? "Agrega items que se necesiten" : "No hay items aun"}
+                    </div>
+                  )}
+                </div>
+                {isCreator && (
+                  <form style={styles.messageForm} onSubmit={handleAddItem}>
+                    <input
+                      style={styles.input}
+                      type="text"
+                      placeholder="Agregar item necesario..."
+                      value={newItem}
+                      onChange={(e) => setNewItem(e.target.value)}
+                    />
+                    <button type="submit" style={styles.sendButton}>Agregar</button>
+                  </form>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

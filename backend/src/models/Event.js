@@ -9,6 +9,7 @@ const EventSchema = new mongoose.Schema({
   category: String,
   subcategory: String,
   cost: { type: Number, default: 0 },
+  restriccionGenero: { type: String, enum: ["Solo hombres", "Solo mujeres", "Mixto"], default: "Mixto" },
   creator: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   participants: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   messages: [{

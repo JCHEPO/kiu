@@ -107,11 +107,42 @@ export default function ProfilePage() {
       <div style={styles.subtitle}>Tienes x eventos en los siguientes 5 diass 🎉</div>
 
       <div style={isDesktop ? styles.bentoDesktop : styles.bento}>
-        {/* Left column - spans 2 rows */}
+        {/* Datos personales */}
         <div style={{
           ...styles.card,
-          background: "linear-gradient(135deg, #84FFC9, #AAB2FF)",
+          background: "linear-gradient(135deg, #FFE4B5, #FFB347)",
           ...(isDesktop ? { gridRow: "span 2" } : {})
+        }}>
+          <div>
+            <div style={styles.cardTitle}>Datos personales</div>
+            <div style={styles.cardText}>
+              <div style={{ marginBottom: "12px" }}>
+                <span style={{ color: "#333", fontWeight: 900 }}>Genero:</span>{" "}
+                {user.genero || "No especificado"}
+              </div>
+              <div style={{ marginBottom: "12px" }}>
+                <span style={{ color: "#333", fontWeight: 900 }}>Fecha de nacimiento:</span>{" "}
+                {user.fechaNacimiento
+                  ? new Date(user.fechaNacimiento).toLocaleDateString("es-CL", { day: "numeric", month: "long", year: "numeric" })
+                  : "No especificada"}
+              </div>
+              <div style={{ marginBottom: "12px" }}>
+                <span style={{ color: "#333", fontWeight: 900 }}>Email:</span>{" "}
+                {user.email || "—"}
+              </div>
+              <div style={{ marginBottom: "12px" }}>
+                <span style={{ color: "#333", fontWeight: 900 }}>Telefono:</span>{" "}
+                {user.telefono || "No verificado"}
+              </div>
+            </div>
+          </div>
+          <div style={{ ...styles.cardTag, background: "#FF8C00", marginTop: "20px" }}>Perfil</div>
+        </div>
+
+        {/* Eventos */}
+        <div style={{
+          ...styles.card,
+          background: "linear-gradient(135deg, #84FFC9, #AAB2FF)"
         }}>
           <div>
             <div style={styles.cardTitle}>Eventos</div>

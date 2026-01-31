@@ -18,8 +18,9 @@ export default function CreateEventPage() {
     Basket: ["1vs1", "2vs2", "5vs5"]
   };
 
-  // Opciones para Social (juegos de mesa)
-  const socialOptions = ["Cartas Uno", "Monopoly", "Puzzle", "Catan", "TCG (Pokemon, Magic)"];
+  // Opciones para Juegos de mesa
+  const socialOptions = ["Cartas", "Monopoly", "Puzzle", "Catan", "Otro"];
+  const cartasOptions = ["Pokemon", "Magic", "Carioca", "Uno", "Otro"];
 
   // Estado equivalente a tu script JS
   const [eventData, setEventData] = useState({
@@ -27,6 +28,8 @@ export default function CreateEventPage() {
     deporte: "",
     personas: "",
     customCount: "", // Para contador personalizado
+    cartasTipo: "", // Sub-tipo de cartas: Pokemon, Magic, Carioca, Uno, Otro
+    restriccionGenero: "", // "Solo hombres", "Solo mujeres", "Mixto"
     lugar: "",
     lugarOption: "",
     dateOption: "", // "hoy", "mañana", "otra"
@@ -40,6 +43,7 @@ export default function CreateEventPage() {
   const [step, setStep] = useState(1);
 
   const dateInputRef = useRef(null);
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 600;
 
   // Helpers derivados
   const titleText = (() => {
@@ -50,9 +54,12 @@ export default function CreateEventPage() {
       return `Partido de ${eventData.deporte}`;
     }
 
-    if (eventData.tipo === "Social") {
-      if (!eventData.deporte) return eventData.tipo;
-      return eventData.deporte; // Mostrar el juego directamente
+    if (eventData.tipo === "Juegos de mesa") {
+      if (!eventData.deporte) return "Juegos de mesa";
+      if (eventData.deporte === "Cartas" && eventData.cartasTipo) {
+        return `Cartas ${eventData.cartasTipo}`;
+      }
+      return eventData.deporte;
     }
 
     // For "Evento", just show tipo
@@ -94,11 +101,12 @@ export default function CreateEventPage() {
 
     // Contar cuántos campos están completos para tener progreso más granular
     let completedFields = 0;
-    let totalFields = 6; // tipo, deporte/juego, personas, lugar, fecha, costo
+    let totalFields = 7; // tipo, deporte/juego, personas, restriccionGenero, lugar, fecha, costo
 
     if (eventData.tipo) completedFields++;
     if (eventData.deporte || eventData.tipo === "Evento") completedFields++;
     if (eventData.personas || eventData.customCount) completedFields++;
+    if (eventData.restriccionGenero) completedFields++;
     if (eventData.lugar) completedFields++;
     if (eventData.dateOption && eventData.hora) completedFields++;
     if (eventData.gratis || eventData.costoNumber > 0) completedFields++;
@@ -115,8 +123,8 @@ export default function CreateEventPage() {
     if (eventData.tipo === "Evento") {
       return "linear-gradient(90deg, #145277, #83D0CB)"; // gradient formal
     }
-    if (eventData.tipo === "Social") {
-      return "linear-gradient(90deg, #84FFC9, #AAB2FF, #ECA0FF)"; // gradient semiformal
+    if (eventData.tipo === "Juegos de mesa") {
+      return "linear-gradient(90deg, #84FFC9, #AAB2FF, #ECA0FF)"; // gradient juegos de mesa
     }
     // Default gris para cuando no hay selección
     return "linear-gradient(90deg, #e0e0e0, #f5f5f5)";
@@ -129,14 +137,16 @@ export default function CreateEventPage() {
       if (field === "tipo") {
         next.tipo = value;
         // si se cambia el tipo, reseteamos todo lo posterior
-        if (value !== "Partido de futbol" && value !== "Social") {
+        if (value !== "Partido de futbol" && value !== "Juegos de mesa") {
           next.deporte = "";
         }
-        if (value === "Social") {
+        if (value === "Juegos de mesa") {
           next.deporte = ""; // Para Social usaremos deporte para guardar el juego
         }
         next.personas = "";
         next.customCount = "";
+        next.cartasTipo = "";
+        next.restriccionGenero = "";
         next.lugar = "";
         next.lugarOption = "";
         next.dateOption = "";
@@ -146,8 +156,22 @@ export default function CreateEventPage() {
       if (field === "deporte") {
         next.deporte = value;
         // Resetear todo lo posterior cuando cambia el deporte
+        next.cartasTipo = "";
         next.personas = "";
         next.customCount = "";
+        next.restriccionGenero = "";
+        next.lugar = "";
+        next.lugarOption = "";
+        next.dateOption = "";
+        next.rawDate = "";
+        next.displayDate = "02 de Febrero";
+      }
+      if (field === "cartasTipo") {
+        next.cartasTipo = value;
+        // Resetear todo lo posterior cuando cambia tipo de cartas
+        next.personas = "";
+        next.customCount = "";
+        next.restriccionGenero = "";
         next.lugar = "";
         next.lugarOption = "";
         next.dateOption = "";
@@ -160,7 +184,17 @@ export default function CreateEventPage() {
         if (value !== "custom") {
           next.customCount = "";
         }
-        // Resetear lugar y fecha cuando cambia personas
+        // Resetear restriccion genero, lugar y fecha cuando cambia personas
+        next.restriccionGenero = "";
+        next.lugar = "";
+        next.lugarOption = "";
+        next.dateOption = "";
+        next.rawDate = "";
+        next.displayDate = "02 de Febrero";
+      }
+      if (field === "restriccionGenero") {
+        next.restriccionGenero = value;
+        // Resetear lugar y fecha cuando cambia restriccion
         next.lugar = "";
         next.lugarOption = "";
         next.dateOption = "";
@@ -194,13 +228,22 @@ export default function CreateEventPage() {
       setStep(2);
     }
     if (field === "deporte") {
-      setStep(2);
+      // Si selecciona "Cartas", no avanzar aún - esperar sub-selección
+      if (value !== "Cartas") {
+        setStep(2);
+      }
+    }
+    if (field === "cartasTipo") {
+      setStep(2); // Ahora sí avanzar a personas
     }
     if (field === "personas") {
       setStep(3);
     }
-    if (field === "lugar") {
+    if (field === "restriccionGenero") {
       setStep(4);
+    }
+    if (field === "lugar") {
+      setStep(5);
     }
   };
 
@@ -236,7 +279,7 @@ export default function CreateEventPage() {
         displayDate: "02 de Febrero"
       }));
       if (eventData.hora) {
-        setStep((prev) => Math.max(prev, 5));
+        setStep((prev) => Math.max(prev, 6));
       }
       return;
     }
@@ -258,7 +301,7 @@ export default function CreateEventPage() {
     }));
 
     if (eventData.hora) {
-      setStep((prev) => Math.max(prev, 5));
+      setStep((prev) => Math.max(prev, 6));
     }
   };
 
@@ -298,7 +341,7 @@ export default function CreateEventPage() {
       return updated;
     });
     if (value && eventData.hora) {
-      setStep((prev) => Math.max(prev, 5));
+      setStep((prev) => Math.max(prev, 6));
     }
   };
 
@@ -312,7 +355,7 @@ export default function CreateEventPage() {
       return updated;
     });
     if (eventData.rawDate && value) {
-      setStep((prev) => Math.max(prev, 5));
+      setStep((prev) => Math.max(prev, 6));
     }
   };
 
@@ -355,7 +398,8 @@ export default function CreateEventPage() {
     setEventData((prev) => ({
       ...prev,
       customCount: num,
-      personas: num ? "custom" : "" // Marcamos que hay una selección
+      personas: num ? "custom" : "",
+      restriccionGenero: ""
     }));
     if (num && num > 0) {
       setStep((prev) => Math.max(prev, 3));
@@ -373,8 +417,8 @@ export default function CreateEventPage() {
     let category = "Evento"; // default
     if (eventData.tipo === "Partido de futbol") {
       category = "Partido";
-    } else if (eventData.tipo === "Social") {
-      category = "Social";
+    } else if (eventData.tipo === "Juegos de mesa") {
+      category = "Social"; // Mantener "Social" como categoría en BD
     }
 
     const subcategory = eventData.personas === "custom"
@@ -405,6 +449,7 @@ export default function CreateEventPage() {
       invitees: [],
       mode: "direct",
       maxParticipants,
+      restriccionGenero: eventData.restriccionGenero || "Mixto",
       date: dateIso,
       time: eventData.hora,
       location: eventData.lugar,
@@ -444,7 +489,7 @@ export default function CreateEventPage() {
       backgroundAttachment: "fixed",
       backgroundColor: "#e8e8e8",
       minHeight: "100vh",
-      padding: "20px",
+      padding: isMobile ? "10px" : "20px",
       display: "flex",
       justifyContent: "center",
       alignItems: "flex-start"
@@ -457,33 +502,33 @@ export default function CreateEventPage() {
     eventCard: {
       background:
         "linear-gradient(135deg, #d4b5d4 0%, #c8a8d8 50%, #b8c8e8 100%)",
-      borderRadius: "20px",
-      padding: "30px",
-      marginBottom: "30px",
+      borderRadius: isMobile ? "14px" : "20px",
+      padding: isMobile ? "18px" : "30px",
+      marginBottom: isMobile ? "20px" : "30px",
       border: "3px solid #333",
       position: "sticky",
-      top: "20px",
+      top: isMobile ? "10px" : "20px",
       zIndex: 10,
-      minHeight: "350px",
-      maxHeight: "350px",
+      minHeight: isMobile ? "220px" : "350px",
+      maxHeight: isMobile ? "260px" : "350px",
       display: "flex",
       flexDirection: "column",
       justifyContent: "space-between"
     },
     eventTitle: {
-      fontSize: "80px",
+      fontSize: isMobile ? "40px" : "80px",
       fontWeight: 900,
       lineHeight: 1,
-      marginBottom: "80px",
+      marginBottom: isMobile ? "30px" : "80px",
       marginTop: "5px",
       fontFamily:
         '"Bricolage Grotesque", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
     },
     rating: {
       position: "absolute",
-      top: "30px",
-      right: "30px",
-      fontSize: "32px",
+      top: isMobile ? "18px" : "30px",
+      right: isMobile ? "18px" : "30px",
+      fontSize: isMobile ? "20px" : "32px",
       fontWeight: "bold"
     },
     eventDetails: {
@@ -492,7 +537,7 @@ export default function CreateEventPage() {
       alignItems: "flex-start"
     },
     eventLocation: {
-      fontSize: "16px",
+      fontSize: isMobile ? "12px" : "16px",
       fontWeight: "bold",
       lineHeight: 1.4,
       fontFamily:
@@ -500,7 +545,7 @@ export default function CreateEventPage() {
     },
     eventDate: {
       textAlign: "right",
-      fontSize: "16px",
+      fontSize: isMobile ? "12px" : "16px",
       fontWeight: "bold",
       lineHeight: 1.4,
       fontFamily:
@@ -508,7 +553,7 @@ export default function CreateEventPage() {
     },
     questionsSection: {
       background: "rgba(255, 255, 255, 0.5)",
-      padding: "30px",
+      padding: isMobile ? "15px" : "30px",
       borderRadius: "15px",
       fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive'
     },
@@ -532,9 +577,9 @@ export default function CreateEventPage() {
     },
     sketchBtn: (active = false, wide = false, dimmed = false) => ({
       background: active ? "#f0f0f0" : "#fff",
-      border: "3px solid #000",
-      padding: "15px 30px",
-      fontSize: "18px",
+      border: isMobile ? "2px solid #000" : "3px solid #000",
+      padding: isMobile ? "10px 16px" : "15px 30px",
+      fontSize: isMobile ? "14px" : "18px",
       fontWeight: "bold",
       cursor: "pointer",
       position: "relative",
@@ -554,23 +599,25 @@ export default function CreateEventPage() {
       flexWrap: "wrap"
     },
     dateInput: {
-      border: "3px solid #000",
-      padding: "15px 20px",
-      fontSize: "16px",
+      border: isMobile ? "2px solid #000" : "3px solid #000",
+      padding: isMobile ? "10px 14px" : "15px 20px",
+      fontSize: isMobile ? "14px" : "16px",
       textAlign: "center",
       cursor: "pointer",
-      boxShadow: "3px 3px 0 #000",
+      boxShadow: isMobile ? "2px 2px 0 #000" : "3px 3px 0 #000",
       background: "#fff",
-      minWidth: "140px"
+      minWidth: isMobile ? "100px" : "140px"
     },
     valorInput: {
-      border: "3px solid #000",
-      padding: "15px 20px",
-      fontSize: "16px",
+      border: isMobile ? "2px solid #000" : "3px solid #000",
+      padding: isMobile ? "10px 14px" : "15px 20px",
+      fontSize: isMobile ? "14px" : "16px",
       textAlign: "center",
-      boxShadow: "3px 3px 0 #000",
+      boxShadow: isMobile ? "2px 2px 0 #000" : "3px 3px 0 #000",
       background: "#fff",
-      minWidth: "250px"
+      minWidth: isMobile ? "160px" : "250px",
+      maxWidth: "100%",
+      boxSizing: "border-box"
     }
   };
 
@@ -624,7 +671,7 @@ export default function CreateEventPage() {
                   <br />
                 </>
               )}
-              {step >= 5 && (
+              {step >= 6 && (
                 <>• {eventData.costoLabel}</>
               )}
             </div>
@@ -662,7 +709,7 @@ export default function CreateEventPage() {
               Que hacemos ?
             </h2>
             <div style={styles.options}>
-              {["Partido de futbol", "Social", "Evento"].map((val) => {
+              {["Partido de futbol", "Juegos de mesa", "Evento"].map((val) => {
                 const selected = eventData.tipo === val;
                 const someSelected = !!eventData.tipo;
                 const dimmed = someSelected && !selected;
@@ -673,7 +720,7 @@ export default function CreateEventPage() {
                     style={styles.sketchBtn(selected, false, dimmed)}
                     onClick={() => handleOptionClick("tipo", val)}
                   >
-                    {val === "Partido de futbol" ? "Partido" : val}
+                    {val === "Partido de futbol" ? "Partido" : val === "Juegos de mesa" ? "Juegos" : val}
                   </button>
                 );
               })}
@@ -710,7 +757,7 @@ export default function CreateEventPage() {
           )}
 
           {/* Juegos (solo para camino Social) */}
-          {eventData.tipo === "Social" && (
+          {eventData.tipo === "Juegos de mesa" && (
             <div
               style={{
                 ...styles.questionGroup,
@@ -738,10 +785,39 @@ export default function CreateEventPage() {
             </div>
           )}
 
+          {/* Sub-opciones de Cartas */}
+          {eventData.tipo === "Juegos de mesa" && eventData.deporte === "Cartas" && (
+            <div
+              style={{
+                ...styles.questionGroup,
+                marginBottom: eventData.cartasTipo ? "20px" : "28px"
+              }}
+            >
+              <h2 style={styles.questionTitle}>Que tipo de cartas?</h2>
+              <div style={styles.options}>
+                {cartasOptions.map((val) => {
+                  const selected = eventData.cartasTipo === val;
+                  const someSelected = !!eventData.cartasTipo;
+                  const dimmed = someSelected && !selected;
+                  return (
+                    <button
+                      key={val}
+                      type="button"
+                      style={styles.sketchBtn(selected, false, dimmed)}
+                      onClick={() => handleOptionClick("cartasTipo", val)}
+                    >
+                      {val}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Número de personas */}
           {step >= 2 &&
             ((eventData.tipo === "Partido de futbol" && eventData.deporte) ||
-             (eventData.tipo === "Social" && eventData.deporte) ||
+             (eventData.tipo === "Juegos de mesa" && eventData.deporte && (eventData.deporte !== "Cartas" || eventData.cartasTipo)) ||
              (eventData.tipo === "Evento")) && (
               <div
                 style={{
@@ -777,7 +853,7 @@ export default function CreateEventPage() {
                   })}
 
                 {/* Para Social y Evento, solo mostrar contador */}
-                {(eventData.tipo === "Social" || eventData.tipo === "Evento") && (
+                {(eventData.tipo === "Juegos de mesa" || eventData.tipo === "Evento") && (
                   <input
                     type="number"
                     style={{
@@ -794,18 +870,54 @@ export default function CreateEventPage() {
               </div>
             )}
 
-          {/* Lugar */}
-          {step >= 3 && (
+          {/* Restricción de género */}
+          {step >= 3 && (eventData.personas || eventData.customCount) && (
             <div
               style={{
                 ...styles.questionGroup,
-                marginBottom: step > 4 ? "20px" : "35px"
+                marginBottom: step > 3 ? "20px" : "35px"
+              }}
+            >
+              <h2
+                style={{
+                  ...styles.questionTitle,
+                  fontSize: step > 3 ? "20px" : "24px"
+                }}
+              >
+                Restriccion de genero?
+              </h2>
+              <div style={styles.options}>
+                {["Solo hombres", "Solo mujeres", "Mixto"].map((val) => {
+                  const selected = eventData.restriccionGenero === val;
+                  const someSelected = !!eventData.restriccionGenero;
+                  const dimmed = someSelected && !selected;
+                  return (
+                    <button
+                      key={val}
+                      type="button"
+                      style={styles.sketchBtn(selected, false, dimmed)}
+                      onClick={() => handleOptionClick("restriccionGenero", val)}
+                    >
+                      {val}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Lugar */}
+          {step >= 4 && (
+            <div
+              style={{
+                ...styles.questionGroup,
+                marginBottom: step > 5 ? "20px" : "35px"
               }}
             >
               <h2 style={styles.questionTitle}>Donde ?</h2>
 
               {/* Opciones para Social */}
-              {eventData.tipo === "Social" && (
+              {eventData.tipo === "Juegos de mesa" && (
                 <>
                   <div style={styles.options}>
                     {["Bar", "Cafetería", "Tienda", "Biblioteca", "Plaza"].map((val) => {
@@ -838,7 +950,7 @@ export default function CreateEventPage() {
                           lugarOption: value ? "Otro" : ""
                         }));
                         if (value) {
-                          setStep((prev) => Math.max(prev, 4));
+                          setStep((prev) => Math.max(prev, 5));
                         }
                       }}
                     />
@@ -847,7 +959,7 @@ export default function CreateEventPage() {
               )}
 
               {/* Opciones para Partido y Evento */}
-              {eventData.tipo !== "Social" && (
+              {eventData.tipo !== "Juegos de mesa" && (
                 <>
                   <div style={styles.options}>
                     <select
@@ -886,11 +998,11 @@ export default function CreateEventPage() {
           )}
 
           {/* Fecha y hora */}
-          {step >= 4 && (
+          {step >= 5 && (
             <div
               style={{
                 ...styles.questionGroup,
-                marginBottom: step > 5 ? "20px" : "35px"
+                marginBottom: step > 6 ? "20px" : "35px"
               }}
             >
               <h2 style={styles.questionTitle}>Cuando ?</h2>
@@ -964,7 +1076,7 @@ export default function CreateEventPage() {
           )}
 
           {/* Gratis / Pago o Consumo mínimo */}
-          {step >= 5 && (
+          {step >= 6 && (
             <div style={styles.questionGroup}>
               {/* Si es Bar o Cafetería, preguntar por consumo mínimo */}
               {(eventData.lugarOption === "Bar" || eventData.lugarOption === "Cafetería") ? (
@@ -1036,7 +1148,7 @@ export default function CreateEventPage() {
           )}
 
           {/* Botón crear evento */}
-          {step >= 5 && (eventData.gratis || (!eventData.gratis && eventData.costoNumber > 0)) && (
+          {step >= 6 && (eventData.gratis || (!eventData.gratis && eventData.costoNumber > 0)) && (
             <div style={{ textAlign: "center", marginTop: 20 }}>
               <button
                 type="submit"

@@ -5,6 +5,8 @@ const UserSchema = new mongoose.Schema({
   password: { type: String, required: true },
   nombre: String,
   apellido: String,
+  genero: { type: String, enum: ["Hombre", "Mujer", "LGTBQ+"] },
+  fechaNacimiento: { type: Date },
   fechaRegistro: { type: Date, default: Date.now },
   strikes: { type: Number, default: 0 },
   activo: { type: Boolean, default: true }
