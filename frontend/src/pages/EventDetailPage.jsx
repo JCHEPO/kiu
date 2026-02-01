@@ -578,6 +578,20 @@ export default function EventDetailPage() {
               )}
             </>
           )}
+          <button
+            style={styles.actionButton}
+            onClick={() => {
+              const url = window.location.href;
+              if (navigator.share) {
+                navigator.share({ title: event.title, url });
+              } else {
+                navigator.clipboard.writeText(url);
+                alert("Link copiado al portapapeles");
+              }
+            }}
+          >
+            Compartir Evento
+          </button>
         </div>
 
         {isMobile ? (

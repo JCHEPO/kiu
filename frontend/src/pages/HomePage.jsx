@@ -4,12 +4,18 @@ import { AuthContext } from "../context/AuthContext";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
-// LoginModal with login + register views
-function LoginModal({ onClose, onLoginSuccess }) {
+// LoginModal with login + register + welcome views
+function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
   const { login } = useContext(AuthContext);
   const [view, setView] = useState("login");
   const [form, setForm] = useState({});
   const [error, setError] = useState("");
+
+  const genderOptions = [
+    { label: "Femenino", value: "Mujer" },
+    { label: "Masculino", value: "Hombre" },
+    { label: "Otro", value: "LGTBQ+" }
+  ];
 
   const switchView = (newView) => {
     setView(newView);
@@ -70,7 +76,7 @@ function LoginModal({ onClose, onLoginSuccess }) {
         return;
       }
       login(loginData);
-      onLoginSuccess();
+      setView("welcome");
     } catch (err) {
       setError("Error de conexión");
     }
@@ -213,12 +219,14 @@ function LoginModal({ onClose, onLoginSuccess }) {
               style={modalStyles.input}
               placeholder="Email"
               type="email"
+              value={form.email || ""}
               onChange={e => setForm({ ...form, email: e.target.value })}
             />
             <input
               style={modalStyles.input}
               placeholder="Contrasena"
               type="password"
+              value={form.password || ""}
               onChange={e => setForm({ ...form, password: e.target.value })}
             />
             <button style={modalStyles.button} onClick={handleLogin}>
@@ -235,12 +243,26 @@ function LoginModal({ onClose, onLoginSuccess }) {
 
             <div style={modalStyles.switchLink}>
               No tienes cuenta?{" "}
-              <button style={modalStyles.link} onClick={() => switchView("register")}>
+              <button
+                style={{
+                  ...modalStyles.link,
+                  fontSize: "16px",
+                  fontWeight: "bold",
+                  color: "#000",
+                  background: "none",
+                  border: "none",
+                  textDecoration: "underline",
+                  textUnderlineOffset: "3px",
+                  cursor: "pointer",
+                  fontFamily: '"Bricolage Grotesque", system-ui, sans-serif'
+                }}
+                onClick={() => switchView("register")}
+              >
                 Crear cuenta
               </button>
             </div>
           </>
-        ) : (
+        ) : view === "register" ? (
           <>
             <div style={modalStyles.title}>Crear Cuenta</div>
             <div style={modalStyles.subtitle}>
@@ -252,11 +274,13 @@ function LoginModal({ onClose, onLoginSuccess }) {
             <input
               style={modalStyles.input}
               placeholder="Nombre"
+              value={form.nombre || ""}
               onChange={e => setForm({ ...form, nombre: e.target.value })}
             />
             <input
               style={modalStyles.input}
               placeholder="Apellido"
+              value={form.apellido || ""}
               onChange={e => setForm({ ...form, apellido: e.target.value })}
             />
 
@@ -271,25 +295,25 @@ function LoginModal({ onClose, onLoginSuccess }) {
                 Genero
               </div>
               <div style={{ display: "flex", gap: "8px" }}>
-                {["Femenino", "Masculino", "Sin especificar"].map(g => (
+                {genderOptions.map(g => (
                   <button
-                    key={g}
+                    key={g.value}
                     type="button"
                     style={{
                       flex: 1,
                       padding: "10px",
-                      border: form.genero === g ? "2px solid #000" : "2px solid #ddd",
+                      border: form.genero === g.value ? "2px solid #000" : "2px solid #ddd",
                       borderRadius: "8px",
-                      background: form.genero === g ? "#000" : "#fff",
-                      color: form.genero === g ? "#fff" : "#333",
+                      background: form.genero === g.value ? "#000" : "#fff",
+                      color: form.genero === g.value ? "#fff" : "#333",
                       fontSize: "13px",
                       fontWeight: "bold",
                       cursor: "pointer",
                       fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive'
                     }}
-                    onClick={() => setForm({ ...form, genero: g })}
+                    onClick={() => setForm({ ...form, genero: g.value })}
                   >
-                    {g}
+                    {g.label}
                   </button>
                 ))}
               </div>
@@ -308,6 +332,7 @@ function LoginModal({ onClose, onLoginSuccess }) {
               <input
                 style={modalStyles.input}
                 type="date"
+                value={form.fechaNacimiento || ""}
                 onChange={e => setForm({ ...form, fechaNacimiento: e.target.value })}
               />
             </div>
@@ -316,12 +341,14 @@ function LoginModal({ onClose, onLoginSuccess }) {
               style={modalStyles.input}
               placeholder="Email"
               type="email"
+              value={form.email || ""}
               onChange={e => setForm({ ...form, email: e.target.value })}
             />
             <input
               style={modalStyles.input}
               placeholder="Contrasena"
               type="password"
+              value={form.password || ""}
               onChange={e => setForm({ ...form, password: e.target.value })}
             />
             <button style={modalStyles.button} onClick={handleRegister}>
@@ -334,6 +361,31 @@ function LoginModal({ onClose, onLoginSuccess }) {
                 Iniciar sesion
               </button>
             </div>
+          </>
+        ) : (
+          /* Welcome view after registration */
+          <>
+            <div style={modalStyles.title}>Bienvenido/a!</div>
+            <div style={modalStyles.subtitle}>
+              Tu cuenta fue creada con exito
+            </div>
+            <button
+              style={{ ...modalStyles.button, marginBottom: "10px" }}
+              onClick={onLoginSuccess}
+            >
+              Buscar eventos
+            </button>
+            <button
+              style={{
+                ...modalStyles.button,
+                background: "#fff",
+                color: "#000",
+                border: "2px solid #000"
+              }}
+              onClick={onNavigateProfile}
+            >
+              Completa tu perfil
+            </button>
           </>
         )}
       </div>
@@ -531,6 +583,8 @@ export default function HomePage() {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [activeChip, setActiveChip] = useState(null);
   const [activeSubChip, setActiveSubChip] = useState(null);
+  const [activeWhen, setActiveWhen] = useState([]);
+  const [activeWhere, setActiveWhere] = useState([]);
   const navigate = useNavigate();
 
   const isLoggedIn = !!auth;
@@ -582,12 +636,60 @@ export default function HomePage() {
     setActiveSubChip(activeSubChip === sub ? null : sub);
   };
 
+  const toggleWhen = (val) => {
+    setActiveWhen(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]);
+  };
+
+  const toggleWhere = (val) => {
+    setActiveWhere(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]);
+  };
+
+  const whenOptions = ["En 6 horas", "Hoy", "Mañana"];
+  const whereOptions = ["Concepcion", "San Pedro", "Hualpén/Talcahuano", "Chiguayante"];
+
+  const matchesWhen = (ev) => {
+    if (activeWhen.length === 0) return true;
+    if (!ev.date) return false;
+    const now = new Date();
+    const evDate = new Date(ev.date);
+    return activeWhen.some(w => {
+      if (w === "En 6 horas") {
+        const sixH = new Date(now.getTime() + 6 * 60 * 60 * 1000);
+        return evDate >= now && evDate <= sixH;
+      }
+      if (w === "Hoy") {
+        return evDate.toDateString() === now.toDateString();
+      }
+      if (w === "Mañana") {
+        const tomorrow = new Date(now);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        return evDate.toDateString() === tomorrow.toDateString();
+      }
+      return true;
+    });
+  };
+
+  const matchesWhere = (ev) => {
+    if (activeWhere.length === 0) return true;
+    const loc = (ev.location || "").toLowerCase();
+    return activeWhere.some(w => loc.includes(w.toLowerCase()));
+  };
+
   const filteredEvents = events.filter((ev) => {
-    if (!activeChip) return true;
-    const cat = chipCategories[activeChip];
-    if (!cat) return true;
-    if (!cat.filter(ev)) return false;
-    if (activeSubChip && cat.subFilter) return cat.subFilter(ev, activeSubChip);
+    // Exclude past events
+    if (ev.date && new Date(ev.date) < new Date()) return false;
+    // Category filter
+    if (activeChip) {
+      const cat = chipCategories[activeChip];
+      if (cat) {
+        if (!cat.filter(ev)) return false;
+        if (activeSubChip && cat.subFilter && !cat.subFilter(ev, activeSubChip)) return false;
+      }
+    }
+    // When filter
+    if (!matchesWhen(ev)) return false;
+    // Where filter
+    if (!matchesWhere(ev)) return false;
     return true;
   });
 
@@ -729,12 +831,12 @@ export default function HomePage() {
     },
     header: {
       textAlign: "center",
-      marginBottom: "50px"
+      marginBottom: "20px"
     },
     title: {
       fontSize: "48px",
       fontWeight: 900,
-      marginBottom: "10px",
+      marginBottom: "6px",
       color: "#000",
       fontFamily: '"Bricolage Grotesque", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
     },
@@ -875,6 +977,10 @@ export default function HomePage() {
         <LoginModal
           onClose={() => setShowLoginModal(false)}
           onLoginSuccess={handleLoginSuccess}
+          onNavigateProfile={() => {
+            setShowLoginModal(false);
+            navigate("/profile");
+          }}
         />
       )}
 
@@ -887,7 +993,7 @@ export default function HomePage() {
               style={styles.welcomeBtn}
               onClick={() => setShowUserMenu(!showUserMenu)}
             >
-              Bienvenido, {userName} ▾
+              {auth?.user?.genero === "Mujer" ? "Bienvenida" : "Bienvenido"}, {userName} ▾
             </button>
             {showUserMenu && (
               <div style={styles.dropdown}>
@@ -989,6 +1095,40 @@ export default function HomePage() {
               ))}
             </div>
           )}
+
+          {/* When / Where filter chips */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", justifyContent: "center", marginBottom: "12px" }}>
+            <span style={{
+              fontSize: "14px", fontWeight: 700, color: "#666",
+              fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
+              alignSelf: "center"
+            }}>Cuando</span>
+            {whenOptions.map(w => (
+              <button
+                key={w}
+                style={activeWhen.includes(w) ? styles.subChipActive : styles.subChip}
+                onClick={() => toggleWhen(w)}
+              >
+                {w}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", justifyContent: "center", marginBottom: "25px" }}>
+            <span style={{
+              fontSize: "14px", fontWeight: 700, color: "#666",
+              fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
+              alignSelf: "center"
+            }}>Donde</span>
+            {whereOptions.map(w => (
+              <button
+                key={w}
+                style={activeWhere.includes(w) ? styles.subChipActive : styles.subChip}
+                onClick={() => toggleWhere(w)}
+              >
+                {w}
+              </button>
+            ))}
+          </div>
 
           {filteredEvents.length === 0 ? (
             <div style={styles.emptyState}>
