@@ -1,8 +1,28 @@
 import React, { useState, useEffect, useContext, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { useGoogleLogin } from "@react-oauth/google";
 import { AuthContext } from "../context/AuthContext";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+const FB_APP_ID = import.meta.env.VITE_FACEBOOK_APP_ID || "";
+
+// Load Facebook SDK once
+let fbSdkLoaded = false;
+let fbInitialized = false;
+function loadFacebookSdk() {
+  if (fbSdkLoaded || typeof window === "undefined") return;
+  fbSdkLoaded = true;
+  window.fbAsyncInit = function () {
+    window.FB.init({ appId: FB_APP_ID, cookie: true, xfbml: false, version: "v19.0" });
+    fbInitialized = true;
+  };
+  const script = document.createElement("script");
+  script.src = "https://connect.facebook.net/es_LA/sdk.js";
+  script.async = true;
+  script.defer = true;
+  document.body.appendChild(script);
+}
+if (FB_APP_ID) loadFacebookSdk();
 
 // LoginModal with login + register + welcome views
 function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
@@ -10,6 +30,7 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
   const [view, setView] = useState("login");
   const [form, setForm] = useState({});
   const [error, setError] = useState("");
+  const [oauthData, setOauthData] = useState(null); // Store OAuth response for nickname flow
 
   const genderOptions = [
     { label: "Femenino", value: "Mujer" },
@@ -21,6 +42,68 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
     setView(newView);
     setForm({});
     setError("");
+  };
+
+  // Google OAuth
+  const googleLogin = useGoogleLogin({
+    onSuccess: async (tokenResponse) => {
+      setError("");
+      try {
+        const res = await fetch(`${API_URL}/api/auth/google`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accessToken: tokenResponse.access_token })
+        });
+        const data = await res.json();
+        if (data.error) {
+          setError(data.error);
+          return;
+        }
+        // Store data and ask for nickname
+        setOauthData(data);
+        setForm({ nickname: data.user.nombre || "" });
+        setView("askNickname");
+      } catch (err) {
+        setError("Error al conectar con Google");
+      }
+    },
+    onError: () => setError("Error al iniciar sesion con Google")
+  });
+
+  // Facebook OAuth
+  const handleFacebookLogin = () => {
+    setError("");
+    // Facebook requires HTTPS
+    if (window.location.protocol !== "https:") {
+      setError("Facebook requiere HTTPS. Prueba en produccion o usa Google.");
+      return;
+    }
+    if (!window.FB || !fbInitialized) {
+      setError("Facebook SDK no cargado. Intenta de nuevo en unos segundos.");
+      return;
+    }
+    window.FB.login((response) => {
+      if (response.authResponse) {
+        const { accessToken } = response.authResponse;
+        fetch(`${API_URL}/api/auth/facebook`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accessToken })
+        })
+          .then(res => res.json())
+          .then(data => {
+            if (data.error) {
+              setError(data.error);
+              return;
+            }
+            // Store data and ask for nickname
+            setOauthData(data);
+            setForm({ nickname: data.user.nombre || "" });
+            setView("askNickname");
+          })
+          .catch(() => setError("Error al conectar con Facebook"));
+      }
+    }, { scope: "email,public_profile" });
   };
 
   const handleLogin = async () => {
@@ -79,6 +162,36 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
       setView("welcome");
     } catch (err) {
       setError("Error de conexión");
+    }
+  };
+
+  // Save nickname after OAuth
+  const handleSaveNickname = async () => {
+    if (!form.nickname?.trim()) {
+      setError("Ingresa como quieres que te llamemos");
+      return;
+    }
+    setError("");
+    try {
+      // Update nickname in backend
+      const res = await fetch(`${API_URL}/api/auth/me/nickname`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${oauthData.token}`
+        },
+        body: JSON.stringify({ nombre: form.nickname.trim() })
+      });
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+        return;
+      }
+      // Login with updated user data
+      login({ token: oauthData.token, user: data.user });
+      onLoginSuccess();
+    } catch (err) {
+      setError("Error al guardar nombre");
     }
   };
 
@@ -236,8 +349,8 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
             <div style={modalStyles.socialSection}>
               <div style={modalStyles.socialText}>o inicia sesion con</div>
               <div style={modalStyles.socialButtons}>
-                <button style={modalStyles.socialBtn}>Google</button>
-                <button style={modalStyles.socialBtn}>Facebook</button>
+                <button style={modalStyles.socialBtn} onClick={() => googleLogin()}>Google</button>
+                <button style={modalStyles.socialBtn} onClick={handleFacebookLogin}>Facebook</button>
               </div>
             </div>
 
@@ -355,12 +468,41 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
               Registrarse
             </button>
 
+            <div style={modalStyles.socialSection}>
+              <div style={modalStyles.socialText}>o registrate con</div>
+              <div style={modalStyles.socialButtons}>
+                <button style={modalStyles.socialBtn} onClick={() => googleLogin()}>Google</button>
+                <button style={modalStyles.socialBtn} onClick={handleFacebookLogin}>Facebook</button>
+              </div>
+            </div>
+
             <div style={modalStyles.switchLink}>
               Ya tienes cuenta?{" "}
               <button style={modalStyles.link} onClick={() => switchView("login")}>
                 Iniciar sesion
               </button>
             </div>
+          </>
+        ) : view === "askNickname" ? (
+          /* Ask for nickname after OAuth */
+          <>
+            <div style={modalStyles.title}>Como quieres que te llamemos?</div>
+            <div style={modalStyles.subtitle}>
+              Puedes usar tu nombre o un apodo
+            </div>
+
+            {error && <div style={modalStyles.error}>{error}</div>}
+
+            <input
+              style={modalStyles.input}
+              placeholder="Tu nombre o apodo"
+              value={form.nickname || ""}
+              onChange={e => setForm({ ...form, nickname: e.target.value })}
+              autoFocus
+            />
+            <button style={modalStyles.button} onClick={handleSaveNickname}>
+              Continuar
+            </button>
           </>
         ) : (
           /* Welcome view after registration */
