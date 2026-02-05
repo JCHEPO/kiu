@@ -12,7 +12,17 @@ let fbInitialized = false;
 function loadFacebookSdk() {
   if (fbSdkLoaded || typeof window === "undefined") return;
   fbSdkLoaded = true;
-  window.fbAsyncInit = function () {
+/*************  ✨ Windsurf Command ⭐  *************/
+/**
+ * Initializes Facebook SDK with the given app ID, enabling
+ * cookies and disabling xfbml. The version of the SDK is
+ * set to v19.0.
+ * @param {string} appId - The Facebook app ID.
+ * @param {boolean} cookie - Whether to enable cookies.
+ * @param {boolean} xfbml - Whether to enable xfbml.
+ * @param {string} version - The version of the SDK.
+ */
+/*******  c81d0ba4-b3b6-40ac-ba50-0586251df85e  *******/  window.fbAsyncInit = function () {
     window.FB.init({ appId: FB_APP_ID, cookie: true, xfbml: false, version: "v19.0" });
     fbInitialized = true;
   };
@@ -546,12 +556,12 @@ function seedFromId(id) {
 }
 
 // Card component for events grid
-function EventPostItCard({ event, isLoggedIn }) {
-  // Scale between 0.88 
+// sizeFactor: explicit scale (e.g. 0.7 for featured). If omitted, uses seed-based random scale.
+function EventPostItCard({ event, isLoggedIn, sizeFactor: externalScale }) {
   const seed = seedFromId(event._id);
-  const scale = 0.88 + seed * 0.24;
-  const rotation = (seed - 0.5) * 4; // -2° a +2°
-
+  const rotation = externalScale != null ? 0 : (seed - 0.5) * 4;
+  const factor = externalScale ?? (0.88 + seed * 0.24);
+  const s = (px) => `${Math.round(px * factor)}px`;
 
   const getCardGradient = () => {
     if (event.category === "Partido") {
@@ -588,56 +598,61 @@ function EventPostItCard({ event, isLoggedIn }) {
 
   const cardStyles = {
     card: {
-      width: `${cardWidth}px`,
-      height: `${cardHeight}px`,
+      width: s(cardWidth),
+      height: s(cardHeight),
       background: getCardGradient(),
-      borderRadius: "20px",
-      padding: "25px",
+      borderRadius: s(20),
+      padding: s(25),
       position: "relative",
-      border: "3px solid #333",
+      border: `${Math.max(2, Math.round(3 * factor))}px solid #333`,
       display: "flex",
       flexDirection: "column",
       justifyContent: "flex-start",
       overflow: "hidden",
       cursor: "pointer",
-      transition: "transform 0.2s",
       boxSizing: "border-box",
-      transform: `scale(${scale}) rotate(${rotation}deg)`
+      transform: rotation ? `rotate(${rotation}deg)` : undefined
     },
     topSection: {
       display: "flex",
       justifyContent: "space-between",
-      alignItems: "flex-start"
+      alignItems: "flex-start",
+      gap: s(8)
     },
     titleContainer: {
-      flex: 1
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "flex-start",
+      textAlign: "left"
     },
+
     titleLine: {
-      fontSize: "44px",
+      fontSize: s(44),
       fontWeight: 900,
       color: "#000",
       lineHeight: 1.1,
-      fontFamily: '"Bricolage Grotesque", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
-    },
+      textAlign: "left",
+      fontFamily: '"Bricolage Grotesque", system-ui, sans-serif'
+    }
+,
     rating: {
-      fontSize: "24px",
+      fontSize: s(24),
       fontWeight: "bold",
       color: "#000",
       fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
       whiteSpace: "nowrap",
-      marginLeft: "10px"
+      marginLeft: s(10)
     },
     bottomSection: {
       display: "flex",
       justifyContent: "space-between",
       alignItems: "flex-start",
-      gap: "16px",
-      fontSize: "16px",
+      gap: s(16),
+      fontSize: s(16),
       fontWeight: "bold",
       fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
       color: "#000"
     },
-
     blurred: {
       filter: "blur(5px)",
       userSelect: "none",
@@ -657,7 +672,6 @@ function EventPostItCard({ event, isLoggedIn }) {
 
   return (
     <div style={cardStyles.card}>
-      {/* Stamp overlay for visitor mode */}
       {!isLoggedIn && (
         <img
           src="/assets/stamp.png"
@@ -666,13 +680,12 @@ function EventPostItCard({ event, isLoggedIn }) {
         />
       )}
 
-      {/* Top: Title + Participant Count */}
       <div style={cardStyles.topSection}>
         <div style={cardStyles.titleContainer}>
           {event.category === "Partido" && (
             <>
               <div style={cardStyles.titleLine}>Partido de</div>
-              <div style={{ ...cardStyles.titleLine, fontSize: "40px" }}>
+              <div style={{ ...cardStyles.titleLine, fontSize: s(40) }}>
                 {event.title.replace("Partido de ", "")}
               </div>
             </>
@@ -682,9 +695,8 @@ function EventPostItCard({ event, isLoggedIn }) {
             <div style={cardStyles.titleLine}>{event.title}</div>
           )}
 
-
           {event.subcategory && (
-            <div style={{ ...cardStyles.titleLine, fontSize: "28px", marginTop: "4px", fontWeight: 999 }}>
+            <div style={{ ...cardStyles.titleLine, fontSize: s(28), marginTop: s(4), fontWeight: 999 }}>
               {/^\d+$/.test(event.subcategory) ? `Para ${event.subcategory} personas` : event.subcategory}
             </div>
           )}
@@ -693,9 +705,7 @@ function EventPostItCard({ event, isLoggedIn }) {
       </div>
       <div style={{ flexGrow: 1 }} />
 
-      {/* Bottom: Date, Time, Location, Cost - blurred for visitors */}
       <div style={{ ...cardStyles.bottomSection, ...(isLoggedIn ? {} : cardStyles.blurred) }}>
-        {/* Left info */}
         <div>
           {event.location && <div>• {event.location}</div>}
           <div>
@@ -703,7 +713,6 @@ function EventPostItCard({ event, isLoggedIn }) {
           </div>
         </div>
 
-        {/* Right info */}
         {event.date && (
           <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
             <div>{formatDate(event.date)}</div>
@@ -711,8 +720,6 @@ function EventPostItCard({ event, isLoggedIn }) {
           </div>
         )}
       </div>
-
-
     </div>
   );
 }
@@ -723,115 +730,102 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [activeChip, setActiveChip] = useState(null);
-  const [activeSubChip, setActiveSubChip] = useState(null);
-  const [activeWhen, setActiveWhen] = useState([]);
-  const [activeWhere, setActiveWhere] = useState([]);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [activeIntent, setActiveIntent] = useState(null);
+  const [heroPhrase, setHeroPhrase] = useState(0);
+  const [featuredIndex, setFeaturedIndex] = useState(0);
   const navigate = useNavigate();
+
+  const heroTexts = [
+    "Hagamos algo. Descubre cientos de eventos.",
+    "Y si jugamos un partido de voley? o jugamos cartas?",
+    "Descubre planes hoy o arma el tuyo en menos de un minuto"
+  ];
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setHeroPhrase(prev => (prev + 1) % 3);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Rotate featured event card every 5 seconds
+  useEffect(() => {
+    if (events.length === 0) return;
+    setFeaturedIndex(0);
+    const interval = setInterval(() => {
+      setFeaturedIndex(prev => (prev + 1) % events.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [events.length]);
+
+  // Intent-based exploration: maps human intentions to filter logic
+  const intents = {
+    "Quiero salir": {
+      emoji: "🎉",
+      keywords: ["fiesta", "carrete", "bar", "pub", "discoteca", "noche", "junta", "asado", "terraza", "brunch", "cafe", "café"],
+      categories: ["Social"],
+      description: "Fiestas, juntas, carretes"
+    },
+    "Quiero jugar": {
+      emoji: "🎮",
+      keywords: ["partido", "futbol", "voley", "tenis", "padel", "basket", "cartas", "pokemon", "magic", "uno", "juego", "gaming"],
+      categories: ["Partido"],
+      description: "Deportes, juegos, cartas"
+    },
+    "Conocer gente": {
+      emoji: "👋",
+      keywords: ["meetup", "networking", "social", "comunidad", "grupo", "nuevo", "conocer", "amigos"],
+      categories: ["Social"],
+      excludeKeywords: ["clase", "taller", "curso"],
+      description: "Meetups, nuevos amigos"
+    },
+    "Aprender algo": {
+      emoji: "📚",
+      keywords: ["clase", "taller", "curso", "workshop", "charla", "conferencia", "capacitacion", "tutorial", "aprende"],
+      categories: [],
+      description: "Clases, talleres, cursos"
+    }
+  };
+
+  const matchesIntent = (ev) => {
+    if (!activeIntent) return true;
+    const intent = intents[activeIntent];
+    if (!intent) return true;
+
+    const title = (ev.title || "").toLowerCase();
+    const desc = (ev.description || "").toLowerCase();
+    const loc = (ev.location || "").toLowerCase();
+    const combined = `${title} ${desc} ${loc}`;
+
+    // Check excluded keywords first
+    if (intent.excludeKeywords?.some(k => combined.includes(k))) return false;
+
+    // Match by keywords OR category
+    const keywordMatch = intent.keywords.some(k => combined.includes(k));
+    const categoryMatch = intent.categories.length > 0 && intent.categories.includes(ev.category);
+
+    return keywordMatch || categoryMatch;
+  };
+
+  // Mobile detection
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const isLoggedIn = !!auth;
   const userName = auth?.user?.nombre || "Usuario";
   const menuRef = useRef(null);
 
-  const chipCategories = {
-    Partidos: {
-      filter: (ev) => ev.category === "Partido",
-      subs: ["Futbol", "Voleyball", "Handball", "Tenis", "Padel", "Basket"],
-      subFilter: (ev, sub) => ev.title?.toLowerCase().includes(sub.toLowerCase())
-    },
-    Cartas: {
-      filter: (ev) => ev.category === "Social" && ["cartas", "pokemon", "magic", "carioca", "uno"].some(k => ev.title?.toLowerCase().includes(k)),
-      subs: ["Pokemon", "Magic", "Carioca", "Uno"],
-      subFilter: (ev, sub) => ev.title?.toLowerCase().includes(sub.toLowerCase())
-    },
-    "Mundo Cafe": {
-      filter: (ev) => ["cafe", "café", "degustacion", "degustación"].some(k => ev.title?.toLowerCase().includes(k) || ev.location?.toLowerCase().includes(k) || ev.description?.toLowerCase().includes(k)),
-      subs: ["Degustaciones", "En Cafeterias"],
-      subFilter: (ev, sub) => {
-        if (sub === "Degustaciones") return ["degustacion", "degustación", "cata"].some(k => ev.title?.toLowerCase().includes(k) || ev.description?.toLowerCase().includes(k));
-        if (sub === "En Cafeterias") return ["cafe", "café", "cafeteria", "cafetería"].some(k => ev.location?.toLowerCase().includes(k));
-        return true;
-      }
-    },
-    Clases: {
-      filter: (ev) => ["clase", "taller", "curso", "workshop"].some(k => ev.title?.toLowerCase().includes(k) || ev.description?.toLowerCase().includes(k)),
-      subs: ["Gratis", "Pagadas"],
-      subFilter: (ev, sub) => {
-        if (sub === "Gratis") return !ev.cost || ev.cost === 0;
-        if (sub === "Pagadas") return ev.cost > 0;
-        return true;
-      }
-    }
-  };
-
-  const handleChipClick = (chip) => {
-    if (activeChip === chip) {
-      setActiveChip(null);
-      setActiveSubChip(null);
-    } else {
-      setActiveChip(chip);
-      setActiveSubChip(null);
-    }
-  };
-
-  const handleSubChipClick = (sub) => {
-    setActiveSubChip(activeSubChip === sub ? null : sub);
-  };
-
-  const toggleWhen = (val) => {
-    setActiveWhen(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]);
-  };
-
-  const toggleWhere = (val) => {
-    setActiveWhere(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]);
-  };
-
-  const whenOptions = ["En 6 horas", "Hoy", "Mañana"];
-  const whereOptions = ["Concepcion", "San Pedro", "Hualpén/Talcahuano", "Chiguayante"];
-
-  const matchesWhen = (ev) => {
-    if (activeWhen.length === 0) return true;
-    if (!ev.date) return false;
-    const now = new Date();
-    const evDate = new Date(ev.date);
-    return activeWhen.some(w => {
-      if (w === "En 6 horas") {
-        const sixH = new Date(now.getTime() + 6 * 60 * 60 * 1000);
-        return evDate >= now && evDate <= sixH;
-      }
-      if (w === "Hoy") {
-        return evDate.toDateString() === now.toDateString();
-      }
-      if (w === "Mañana") {
-        const tomorrow = new Date(now);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        return evDate.toDateString() === tomorrow.toDateString();
-      }
-      return true;
-    });
-  };
-
-  const matchesWhere = (ev) => {
-    if (activeWhere.length === 0) return true;
-    const loc = (ev.location || "").toLowerCase();
-    return activeWhere.some(w => loc.includes(w.toLowerCase()));
-  };
-
   const filteredEvents = events.filter((ev) => {
     // Exclude past events
     if (ev.date && new Date(ev.date) < new Date()) return false;
-    // Category filter
-    if (activeChip) {
-      const cat = chipCategories[activeChip];
-      if (cat) {
-        if (!cat.filter(ev)) return false;
-        if (activeSubChip && cat.subFilter && !cat.subFilter(ev, activeSubChip)) return false;
-      }
+    // Intent filter (primary exploration method)
+    if (activeIntent) {
+      if (!matchesIntent(ev)) return false;
     }
-    // When filter
-    if (!matchesWhen(ev)) return false;
-    // Where filter
-    if (!matchesWhere(ev)) return false;
     return true;
   });
 
@@ -976,24 +970,37 @@ export default function HomePage() {
       marginBottom: "20px"
     },
     title: {
-      fontSize: "48px",
+      fontSize: isMobile ? "28px" : "42px",
       fontWeight: 900,
-      marginBottom: "6px",
+      marginBottom: "10px",
       color: "#000",
-      fontFamily: '"Bricolage Grotesque", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
-    },
-    subtitle: {
-      fontSize: "18px",
-      color: "#444",
-      fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive'
+      fontFamily: '"Bricolage Grotesque", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      lineHeight: 1.2,
+      maxWidth: "600px",
+      margin: "0 auto 10px"
     },
     buttonContainer: {
       display: "flex",
-      gap: "15px",
+      flexDirection: isMobile ? "column" : "row",
+      gap: isMobile ? "12px" : "15px",
       justifyContent: "center",
+      alignItems: "center",
       marginTop: "25px"
     },
-    btnAction: {
+    btnPrimary: {
+      padding: "14px 30px",
+      background: "#000",
+      color: "#fff",
+      border: "3px solid #000",
+      borderRadius: "0px",
+      fontSize: "16px",
+      cursor: "pointer",
+      fontWeight: "bold",
+      fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+      boxShadow: "3px 3px 0 #333",
+      textTransform: "uppercase"
+    },
+    btnSecondary: {
       padding: "14px 30px",
       background: "#fff",
       color: "#000",
@@ -1003,72 +1010,49 @@ export default function HomePage() {
       cursor: "pointer",
       fontWeight: "bold",
       fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
-      boxShadow: "3px 3px 0 #000",
+      boxShadow: "none",
       textTransform: "uppercase"
     },
-    chipsContainer: {
-      display: "flex",
-      flexWrap: "wrap",
-      gap: "12px",
-      justifyContent: "center",
-      marginBottom: "20px"
+    intentContainer: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: isMobile ? "10px" : "14px",
+      maxWidth: isMobile ? "340px" : "500px",
+      margin: "0 auto 30px",
+      padding: "0 10px"
     },
-    chip: {
-      padding: "10px 24px",
-      borderRadius: "50px",
+    intentChip: {
+      padding: isMobile ? "12px 16px" : "14px 24px",
+      borderRadius: "12px",
       border: "3px solid #333",
-      fontSize: "16px",
+      fontSize: isMobile ? "14px" : "16px",
       fontWeight: 700,
       fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
       cursor: "pointer",
-      transition: "all 0.2s",
+      transition: "all 0.15s ease",
       background: "#fff",
       color: "#000",
-      boxShadow: "2px 2px 0 #000"
+      boxShadow: "3px 3px 0 #000",
+      display: "flex",
+      alignItems: "center",
+      gap: "8px"
     },
-    chipActive: {
-      padding: "10px 24px",
-      borderRadius: "50px",
-      border: "3px solid #333",
-      fontSize: "16px",
+    intentChipActive: {
+      padding: isMobile ? "12px 16px" : "14px 24px",
+      borderRadius: "12px",
+      border: "3px solid #000",
+      fontSize: isMobile ? "14px" : "16px",
       fontWeight: 700,
       fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
       cursor: "pointer",
-      transition: "all 0.2s",
+      transition: "all 0.15s ease",
       background: "#000",
       color: "#fff",
-      boxShadow: "2px 2px 0 #333"
-    },
-    subChipsContainer: {
+      boxShadow: "none",
+      transform: "translate(3px, 3px)",
       display: "flex",
-      flexWrap: "wrap",
-      gap: "8px",
-      justifyContent: "center",
-      marginBottom: "25px"
-    },
-    subChip: {
-      padding: "6px 16px",
-      borderRadius: "50px",
-      border: "2px solid #999",
-      fontSize: "13px",
-      fontWeight: 600,
-      fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
-      cursor: "pointer",
-      transition: "all 0.2s",
-      background: "rgba(255,255,255,0.7)",
-      color: "#555"
-    },
-    subChipActive: {
-      padding: "6px 16px",
-      borderRadius: "50px",
-      border: "2px solid #333",
-      fontSize: "13px",
-      fontWeight: 600,
-      fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
-      cursor: "pointer",
-      transition: "all 0.2s",
-      background: "#333",
-      color: "#fff"
+      alignItems: "center",
+      gap: "8px"
     },
     eventsSection: {
       marginTop: "40px"
@@ -1173,101 +1157,107 @@ export default function HomePage() {
         )}
       </div>
 
+      {/* Keyframe for progress bar */}
+      <style>{`
+        @keyframes shrinkBar {
+          from { width: 100%; }
+          to { width: 0%; }
+        }
+        @keyframes fadeInCard {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+
       {/* Content */}
       <div style={styles.content}>
         <div style={styles.header}>
-          <h1 style={styles.title}>Kiu</h1>
-          <p style={styles.subtitle}>Crea y descubre eventos en tu comunidad</p>
+          <h1 style={styles.title} key={`hero-${heroPhrase}`}>{heroTexts[heroPhrase]}</h1>
+
+          {/* Featured event card carousel */}
+          {events.length > 0 && (() => {
+            const feat = events[featuredIndex % events.length];
+            if (!feat) return null;
+            return (
+              <div style={{ display: "flex", justifyContent: "center", margin: "24px auto 0" }}>
+                <div
+                  key={`feat-${featuredIndex}`}
+                  style={{
+                    position: "relative",
+                    animation: "fadeInCard 0.3s ease"
+                  }}
+                  onClick={() => handleCardClick(feat._id)}
+                >
+                  <EventPostItCard event={feat} isLoggedIn={isLoggedIn} sizeFactor={0.7} />
+                  {/* Progress bar countdown */}
+                  <div style={{
+                    position: "absolute",
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: "4px",
+                    background: "rgba(0,0,0,0.1)",
+                    borderRadius: "0 0 14px 14px",
+                    overflow: "hidden"
+                  }}>
+                    <div style={{
+                      height: "100%",
+                      background: "#000",
+                      animation: "shrinkBar 5s linear forwards"
+                    }} />
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           <div style={styles.buttonContainer}>
             {isLoggedIn ? (
               <>
                 <button
-                  style={styles.btnAction}
+                  style={styles.btnPrimary}
+                  onClick={() => document.getElementById("events-section")?.scrollIntoView({ behavior: "smooth" })}
+                >
+                  Explorar Eventos
+                </button>
+                <button
+                  style={styles.btnSecondary}
                   onClick={() => navigate("/create-event")}
                 >
                   Crear Evento
                 </button>
-                <button
-                  style={styles.btnAction}
-                  onClick={() => document.getElementById("events-section")?.scrollIntoView({ behavior: "smooth" })}
-                >
-                  Explorar
-                </button>
               </>
             ) : (
-              <button
-                style={styles.btnAction}
-                onClick={() => setShowLoginModal(true)}
-              >
-                Iniciar Sesion
-              </button>
+              <>
+                <button
+                  style={styles.btnPrimary}
+                  onClick={() => document.getElementById("events-section")?.scrollIntoView({ behavior: "smooth" })}
+                >
+                  Explorar Eventos
+                </button>
+                <button
+                  style={styles.btnSecondary}
+                  onClick={() => setShowLoginModal(true)}
+                >
+                  Iniciar Sesion
+                </button>
+              </>
             )}
           </div>
         </div>
 
         {/* Events Grid */}
         <div style={styles.eventsSection} id="events-section">
-          <h2 style={styles.sectionTitle}>Eventos Disponibles</h2>
-
-          {/* Filter Chips */}
-          <div style={styles.chipsContainer}>
-            {Object.keys(chipCategories).map((chip) => (
+          {/* Intent-based exploration */}
+          <div style={styles.intentContainer}>
+            {Object.entries(intents).map(([intentName, intent]) => (
               <button
-                key={chip}
-                style={activeChip === chip ? styles.chipActive : styles.chip}
-                onClick={() => handleChipClick(chip)}
+                key={intentName}
+                style={activeIntent === intentName ? styles.intentChipActive : styles.intentChip}
+                onClick={() => setActiveIntent(activeIntent === intentName ? null : intentName)}
               >
-                {chip}
-              </button>
-            ))}
-          </div>
-
-          {/* Sub-chips */}
-          {activeChip && chipCategories[activeChip] && (
-            <div style={styles.subChipsContainer}>
-              {chipCategories[activeChip].subs.map((sub) => (
-                <button
-                  key={sub}
-                  style={activeSubChip === sub ? styles.subChipActive : styles.subChip}
-                  onClick={() => handleSubChipClick(sub)}
-                >
-                  {sub}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* When / Where filter chips */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", justifyContent: "center", marginBottom: "12px" }}>
-            <span style={{
-              fontSize: "14px", fontWeight: 700, color: "#666",
-              fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
-              alignSelf: "center"
-            }}>Cuando</span>
-            {whenOptions.map(w => (
-              <button
-                key={w}
-                style={activeWhen.includes(w) ? styles.subChipActive : styles.subChip}
-                onClick={() => toggleWhen(w)}
-              >
-                {w}
-              </button>
-            ))}
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", justifyContent: "center", marginBottom: "25px" }}>
-            <span style={{
-              fontSize: "14px", fontWeight: 700, color: "#666",
-              fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
-              alignSelf: "center"
-            }}>Donde</span>
-            {whereOptions.map(w => (
-              <button
-                key={w}
-                style={activeWhere.includes(w) ? styles.subChipActive : styles.subChip}
-                onClick={() => toggleWhere(w)}
-              >
-                {w}
+                <span>{intent.emoji}</span>
+                <span>{intentName}</span>
               </button>
             ))}
           </div>
@@ -1275,7 +1265,9 @@ export default function HomePage() {
           {filteredEvents.length === 0 ? (
             <div style={styles.emptyState}>
               <p style={{ fontSize: "18px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
-                {activeChip ? "No hay eventos para este filtro." : "No hay eventos aun. Se el primero en crear uno."}
+                {activeIntent
+                  ? `No hay eventos para "${activeIntent}" aun. Proba con otra opcion.`
+                  : "No hay eventos aun. Se el primero en crear uno."}
               </p>
             </div>
           ) : (

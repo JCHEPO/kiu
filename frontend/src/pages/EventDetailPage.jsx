@@ -580,17 +580,30 @@ export default function EventDetailPage() {
           )}
           <button
             style={styles.actionButton}
-            onClick={() => {
+            onClick={async () => {
               const url = window.location.href;
+              const fecha = event.date ? `${formatDate(event.date)} a las ${formatTime(event.date)}` : "";
+              const texto = [
+                event.title,
+                fecha,
+                event.location,
+                event.cost ? `$${event.cost}` : "Gratis",
+                event.description
+              ].filter(Boolean).join("\n");
+
               if (navigator.share) {
-                navigator.share({ title: event.title, url });
+                try {
+                  await navigator.share({ title: event.title, text: texto, url });
+                } catch (e) {
+                  // user cancelled share
+                }
               } else {
-                navigator.clipboard.writeText(url);
+                navigator.clipboard.writeText(`${texto}\n${url}`);
                 alert("Link copiado al portapapeles");
               }
             }}
           >
-            Compartir Evento
+            Compartir
           </button>
         </div>
 

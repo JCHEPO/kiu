@@ -41,8 +41,10 @@ export default function CreateEventPage() {
     gratis: true
   });
   const [step, setStep] = useState(1);
+  const [createdEventId, setCreatedEventId] = useState(null);
 
   const dateInputRef = useRef(null);
+  const timeInputRef = useRef(null);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 600;
 
   // Helpers derivados
@@ -271,7 +273,7 @@ export default function CreateEventPage() {
       selectedDate = new Date();
       selectedDate.setDate(selectedDate.getDate() + 1);
     } else {
-      // "otra" - dejar vacío para que el usuario seleccione
+      // "otra fecha" - dejar vacío para que el usuario seleccione
       setEventData((prev) => ({
         ...prev,
         dateOption: option,
@@ -281,6 +283,12 @@ export default function CreateEventPage() {
       if (eventData.hora) {
         setStep((prev) => Math.max(prev, 6));
       }
+      // Open date picker automatically after a short delay for DOM to render
+      setTimeout(() => {
+        if (dateInputRef.current && dateInputRef.current.showPicker) {
+          dateInputRef.current.showPicker();
+        }
+      }, 100);
       return;
     }
 
@@ -465,8 +473,7 @@ export default function CreateEventPage() {
       const data = await res.json();
 
       if (res.ok) {
-        alert("Evento creado");
-        navigate("/");
+        setCreatedEventId(data._id);
       } else {
         alert(
           data.details
@@ -623,6 +630,93 @@ export default function CreateEventPage() {
 
   return (
     <div style={styles.bodyBg}>
+      {/* Success Modal */}
+      {createdEventId && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: "rgba(0,0,0,0.6)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 1000
+        }}>
+          <div style={{
+            background: "#fff",
+            borderRadius: "16px",
+            padding: isMobile ? "30px 24px" : "40px",
+            width: isMobile ? "90vw" : "380px",
+            maxWidth: "90vw",
+            textAlign: "center",
+            boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            border: "3px solid #000"
+          }}>
+            <div style={{
+              fontSize: "48px",
+              marginBottom: "12px"
+            }}>🎉</div>
+            <div style={{
+              fontSize: "26px",
+              fontWeight: 900,
+              marginBottom: "8px",
+              fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
+              color: "#000"
+            }}>
+              Evento creado
+            </div>
+            <div style={{
+              fontSize: "16px",
+              color: "#666",
+              marginBottom: "28px",
+              fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive'
+            }}>
+              Tu evento esta listo. Compartelo para que se sumen!
+            </div>
+            <button
+              style={{
+                width: "100%",
+                padding: "14px",
+                backgroundColor: "#000",
+                color: "#fff",
+                border: "3px solid #000",
+                borderRadius: "0px",
+                fontSize: "16px",
+                fontWeight: "bold",
+                cursor: "pointer",
+                fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                boxShadow: "3px 3px 0 #333",
+                textTransform: "uppercase",
+                marginBottom: "10px"
+              }}
+              onClick={() => navigate(`/event/${createdEventId}`)}
+            >
+              Ver mi evento
+            </button>
+            <button
+              style={{
+                width: "100%",
+                padding: "14px",
+                backgroundColor: "#fff",
+                color: "#000",
+                border: "3px solid #000",
+                borderRadius: "0px",
+                fontSize: "16px",
+                fontWeight: "bold",
+                cursor: "pointer",
+                fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                textTransform: "uppercase"
+              }}
+              onClick={() => navigate("/")}
+            >
+              Volver al inicio
+            </button>
+          </div>
+        </div>
+      )}
+
       <div style={styles.container}>
         {/* Tarjeta del evento */}
         <div style={{
@@ -1026,50 +1120,77 @@ export default function CreateEventPage() {
                 })}
               </div>
 
-              {/* Input de fecha (solo si selecciona "otra") */}
-              {eventData.dateOption === "otra" && (
+              {/* Input de fecha (solo si selecciona "otra fecha") */}
+              {eventData.dateOption === "otra fecha" && (
                 <div style={{ ...styles.options, marginTop: 15 }}>
-                  <div
-                    style={styles.dateInput}
-                    onClick={() => {
-                      if (dateInputRef.current && dateInputRef.current.showPicker) {
-                        dateInputRef.current.showPicker();
-                      }
+                  <input
+                    ref={dateInputRef}
+                    type="date"
+                    value={eventData.rawDate}
+                    onChange={(e) => handleDateChange(e.target.value)}
+                    style={{
+                      ...styles.dateInput,
+                      fontSize: "16px",
+                      fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                      fontWeight: "bold",
+                      outline: "none"
                     }}
-                  >
-                    <input
-                      ref={dateInputRef}
-                      type="date"
-                      style={{ border: "none", background: "transparent", width: "100%", cursor: "pointer" }}
-                      value={eventData.rawDate}
-                      onChange={(e) => handleDateChange(e.target.value)}
-                    />
-                  </div>
+                  />
                 </div>
               )}
 
-              {/* Hora (siempre visible debajo) */}
+              {/* Hora en formato 24h */}
               {eventData.dateOption && (
-                <div style={{ ...styles.options, marginTop: 15 }}>
-                  <div style={styles.dateInput}>
-                    <input
-                      type="time"
-                      value={eventData.hora}
-                      onChange={(e) => handleTimeChange(e.target.value)}
-                      style={{
-                        border: "none",
-                        background: "transparent",
-                        width: "100%",
-                        cursor: "pointer",
-                        fontSize: "16px",
-                        fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
-                        fontWeight: "bold",
-                        textAlign: "center",
-                        outline: "none"
-                      }}
-                      required
-                    />
-                  </div>
+                <div style={{ ...styles.options, marginTop: 15, gap: "8px", alignItems: "center" }}>
+                  <select
+                    value={eventData.hora.split(":")[0] || "18"}
+                    onChange={(e) => {
+                      const mins = eventData.hora.split(":")[1] || "00";
+                      handleTimeChange(`${e.target.value}:${mins}`);
+                    }}
+                    style={{
+                      ...styles.dateInput,
+                      fontSize: isMobile ? "18px" : "22px",
+                      fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                      fontWeight: "bold",
+                      textAlign: "center",
+                      outline: "none",
+                      appearance: "none",
+                      WebkitAppearance: "none",
+                      paddingRight: isMobile ? "14px" : "20px"
+                    }}
+                  >
+                    {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map(h => (
+                      <option key={h} value={h}>{h}</option>
+                    ))}
+                  </select>
+                  <span style={{
+                    fontSize: isMobile ? "22px" : "28px",
+                    fontWeight: 900,
+                    fontFamily: '"Bricolage Grotesque", system-ui, sans-serif'
+                  }}>:</span>
+                  <select
+                    value={eventData.hora.split(":")[1] || "00"}
+                    onChange={(e) => {
+                      const hrs = eventData.hora.split(":")[0] || "18";
+                      handleTimeChange(`${hrs}:${e.target.value}`);
+                    }}
+                    style={{
+                      ...styles.dateInput,
+                      fontSize: isMobile ? "18px" : "22px",
+                      fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                      fontWeight: "bold",
+                      textAlign: "center",
+                      outline: "none",
+                      appearance: "none",
+                      WebkitAppearance: "none",
+                      paddingRight: isMobile ? "14px" : "20px"
+                    }}
+                  >
+                    {["00", "15", "30", "45"].map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
                 </div>
               )}
             </div>
