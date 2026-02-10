@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { io } from "socket.io-client";
 import { AuthContext } from "../context/AuthContext";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
@@ -15,8 +16,34 @@ export default function EventDetailPage() {
   const [newItem, setNewItem] = useState("");
   const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
 
+  // Edit inline states
+  const [editingLocation, setEditingLocation] = useState(false);
+  const [editLocation, setEditLocation] = useState("");
+  const [editingDate, setEditingDate] = useState(false);
+  const [editDate, setEditDate] = useState("");
+  const [editTime, setEditTime] = useState("");
+
+  // Manual participants
+  const [newManualParticipant, setNewManualParticipant] = useState("");
+
+  // Location popup after joining
+  const [showLocationPopup, setShowLocationPopup] = useState(false);
+
   useEffect(() => {
     fetchEventDetails();
+  }, [id]);
+
+  // Real-time updates via Socket.IO
+  useEffect(() => {
+    const socket = io(API_URL);
+    socket.emit("join-event", id);
+    socket.on("event-updated", (updatedEvent) => {
+      setEvent(updatedEvent);
+    });
+    return () => {
+      socket.emit("leave-event", id);
+      socket.disconnect();
+    };
   }, [id]);
 
   // Countdown timer
@@ -67,6 +94,7 @@ export default function EventDetailPage() {
       });
       if (!res.ok) throw new Error("Error al unirse");
       await fetchEventDetails();
+      setShowLocationPopup(true);
     } catch (error) {
       console.error("Error joining event:", error);
       alert("Error al unirse al evento");
@@ -150,6 +178,105 @@ export default function EventDetailPage() {
     } catch (error) {
       console.error("Error claiming item:", error);
       alert("Error al reclamar item");
+    }
+  };
+
+  // Edición inline - Location
+  const handleEditLocation = () => {
+    setEditLocation(event.location || "");
+    setEditingLocation(true);
+  };
+
+  const handleSaveLocation = async () => {
+    if (!editLocation.trim()) return;
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/events/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ location: editLocation.trim() })
+      });
+      if (!res.ok) throw new Error("Error al editar");
+      setEditingLocation(false);
+      await fetchEventDetails();
+    } catch (error) {
+      console.error("Error editing location:", error);
+      alert("Error al editar lugar");
+    }
+  };
+
+  // Edición inline - Date/Time
+  const canEditDate = () => {
+    if (!event?.date) return false;
+    const now = new Date();
+    const eventDate = new Date(event.date);
+    return (eventDate - now) / (1000 * 60 * 60) >= 24;
+  };
+
+  const handleEditDate = () => {
+    if (!canEditDate()) return;
+    const d = new Date(event.date);
+    const dateStr = d.toISOString().split("T")[0];
+    const timeStr = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    setEditDate(dateStr);
+    setEditTime(timeStr);
+    setEditingDate(true);
+  };
+
+  const handleSaveDate = async () => {
+    if (!editDate || !editTime) return;
+    try {
+      const newDate = `${editDate}T${editTime}:00`;
+      const res = await fetchWithAuth(`${API_URL}/api/events/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: newDate })
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || "Error al editar fecha");
+        return;
+      }
+      setEditingDate(false);
+      await fetchEventDetails();
+    } catch (error) {
+      console.error("Error editing date:", error);
+      alert("Error al editar fecha/hora");
+    }
+  };
+
+  // Participantes manuales
+  const handleAddManualParticipant = async (e) => {
+    e.preventDefault();
+    if (!newManualParticipant.trim()) return;
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/events/${id}/manual-participants`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newManualParticipant.trim() })
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || "Error al agregar participante");
+        return;
+      }
+      setNewManualParticipant("");
+      await fetchEventDetails();
+    } catch (error) {
+      console.error("Error adding manual participant:", error);
+      alert("Error al agregar participante");
+    }
+  };
+
+  const handleRemoveManualParticipant = async (index) => {
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/events/${id}/manual-participants/${index}`, {
+        method: "DELETE"
+      });
+      if (!res.ok) throw new Error("Error al remover participante");
+      await fetchEventDetails();
+    } catch (error) {
+      console.error("Error removing manual participant:", error);
+      alert("Error al remover participante");
     }
   };
 
@@ -240,7 +367,7 @@ export default function EventDetailPage() {
   };
 
   const titleParts = getTitleParts();
-  const currentParticipants = event.participants?.length || 0;
+  const currentParticipants = (event.participants?.length || 0) + (event.manualParticipants?.length || 0);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 600;
 
   const styles = {
@@ -536,15 +663,65 @@ export default function EventDetailPage() {
 
           <div style={styles.eventInfo}>
             <div>
-              {event.location && <div>• {event.location}</div>}
-              <div>• {event.cost ? `$${event.cost} por persona` : "Gratis"}</div>
+              {editingLocation ? (
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <input
+                    type="text"
+                    value={editLocation}
+                    onChange={(e) => setEditLocation(e.target.value)}
+                    style={{ border: "2px solid #000", padding: "4px 8px", fontSize: isMobile ? "13px" : "16px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', borderRadius: "4px", width: "160px" }}
+                    autoFocus
+                    onKeyDown={(e) => { if (e.key === "Enter") handleSaveLocation(); if (e.key === "Escape") setEditingLocation(false); }}
+                  />
+                  <span style={{ cursor: "pointer", fontSize: "16px" }} onClick={handleSaveLocation}>&#10003;</span>
+                  <span style={{ cursor: "pointer", fontSize: "16px" }} onClick={() => setEditingLocation(false)}>&#10005;</span>
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  {event.location}
+                  {isCreator && (
+                    <span style={{ cursor: "pointer", fontSize: "14px", opacity: 0.7 }} onClick={handleEditLocation} title="Editar lugar">&#9998;</span>
+                  )}
+                </div>
+              )}
+              <div>{event.cost ? `$${event.cost} por persona` : "Gratis"}</div>
             </div>
             <div style={{ textAlign: "right" }}>
-              {event.date && (
-                <>
-                  <div>{formatDate(event.date)}</div>
-                  <div>{formatTime(event.date)} horas</div>
-                </>
+              {editingDate ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "flex-end" }}>
+                  <input
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    style={{ border: "2px solid #000", padding: "4px 6px", fontSize: "13px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', borderRadius: "4px" }}
+                  />
+                  <input
+                    type="time"
+                    value={editTime}
+                    onChange={(e) => setEditTime(e.target.value)}
+                    style={{ border: "2px solid #000", padding: "4px 6px", fontSize: "13px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', borderRadius: "4px" }}
+                  />
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <span style={{ cursor: "pointer", fontSize: "16px" }} onClick={handleSaveDate}>&#10003;</span>
+                    <span style={{ cursor: "pointer", fontSize: "16px" }} onClick={() => setEditingDate(false)}>&#10005;</span>
+                  </div>
+                </div>
+              ) : (
+                event.date && (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      {formatDate(event.date)}
+                      {isCreator && (
+                        <span
+                          style={{ cursor: canEditDate() ? "pointer" : "not-allowed", fontSize: "14px", opacity: canEditDate() ? 0.7 : 0.3 }}
+                          onClick={handleEditDate}
+                          title={canEditDate() ? "Editar fecha/hora" : "No se puede editar a menos de 24h del evento"}
+                        >&#9998;</span>
+                      )}
+                    </div>
+                    <div>{formatTime(event.date)} horas</div>
+                  </div>
+                )
               )}
             </div>
           </div>
@@ -554,9 +731,6 @@ export default function EventDetailPage() {
         <div style={styles.actionsContainer}>
           {isCreator ? (
             <>
-              <button style={styles.actionButton} onClick={() => navigate(`/event/${id}/edit`)}>
-                Editar Evento
-              </button>
               <button style={{...styles.actionButton, ...styles.deleteButton}} onClick={handleDeleteEvent}>
                 Eliminar Evento
               </button>
@@ -609,38 +783,7 @@ export default function EventDetailPage() {
 
         {isMobile ? (
           <>
-            {/* MOBILE BENTO: Muro first (priority) */}
-            <div style={{ marginBottom: "12px" }}>
-              <div style={styles.section}>
-                <h3 style={styles.sectionTitle}>Muro</h3>
-                <div style={styles.chatWall}>
-                  {event.messages && event.messages.length > 0 ? (
-                    event.messages.map((msg, idx) => (
-                      <div key={idx} style={styles.message}>
-                        <div style={styles.messageSender}>{msg.sender?.name || "Anónimo"}</div>
-                        <div style={styles.messageText}>{msg.text}</div>
-                      </div>
-                    ))
-                  ) : (
-                    <div style={{ textAlign: "center", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
-                      No hay mensajes aún
-                    </div>
-                  )}
-                </div>
-                <form style={styles.messageForm} onSubmit={handleSendMessage}>
-                  <input
-                    style={styles.input}
-                    type="text"
-                    placeholder="Escribe un mensaje..."
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                  />
-                  <button type="submit" style={styles.sendButton}>Enviar</button>
-                </form>
-              </div>
-            </div>
-
-            {/* MOBILE BENTO: Que Llevamos second (priority) */}
+            {/* MOBILE BENTO: Que Llevamos first */}
             <div style={{ marginBottom: "12px" }}>
               <div style={styles.section}>
                 <h3 style={styles.sectionTitle}>Que Llevamos?</h3>
@@ -687,6 +830,37 @@ export default function EventDetailPage() {
               </div>
             </div>
 
+            {/* MOBILE BENTO: Muro second */}
+            <div style={{ marginBottom: "12px" }}>
+              <div style={styles.section}>
+                <h3 style={styles.sectionTitle}>Muro</h3>
+                <div style={styles.chatWall}>
+                  {event.messages && event.messages.length > 0 ? (
+                    event.messages.map((msg, idx) => (
+                      <div key={idx} style={styles.message}>
+                        <div style={styles.messageSender}>{msg.sender?.name || "Anónimo"}</div>
+                        <div style={styles.messageText}>{msg.text}</div>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ textAlign: "center", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
+                      No hay mensajes aún
+                    </div>
+                  )}
+                </div>
+                <form style={styles.messageForm} onSubmit={handleSendMessage}>
+                  <input
+                    style={styles.input}
+                    type="text"
+                    placeholder="Escribe un mensaje..."
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                  />
+                  <button type="submit" style={styles.sendButton}>Enviar</button>
+                </form>
+              </div>
+            </div>
+
             {/* MOBILE BENTO: Countdown + Participants compact side-by-side */}
             <div style={styles.gridContainerCompact}>
               <div style={styles.sectionCompact}>
@@ -728,17 +902,38 @@ export default function EventDetailPage() {
                     </div>
                   </div>
                 ))}
-                {(!event.participants || event.participants.filter(p => p._id !== event.creator?._id).length === 0) && (
+                {event.manualParticipants?.map((name, idx) => (
+                  <div key={`manual-${idx}`} style={styles.participantRow}>
+                    <div style={styles.participantName}>{name}</div>
+                    <span style={{ ...styles.creatorTag, background: "#666" }}>Manual</span>
+                    {isCreator && (
+                      <span style={{ cursor: "pointer", fontSize: "12px", marginLeft: "auto", color: "#cc0000" }} onClick={() => handleRemoveManualParticipant(idx)}>&#10005;</span>
+                    )}
+                  </div>
+                ))}
+                {(!event.participants || event.participants.filter(p => p._id !== event.creator?._id).length === 0) && (!event.manualParticipants || event.manualParticipants.length === 0) && (
                   <div style={{ textAlign: "center", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', fontSize: "12px", marginTop: "6px" }}>
                     Sin participantes aun
                   </div>
+                )}
+                {isCreator && (
+                  <form style={{ display: "flex", gap: "4px", marginTop: "6px" }} onSubmit={handleAddManualParticipant}>
+                    <input
+                      type="text"
+                      placeholder="Nombre..."
+                      value={newManualParticipant}
+                      onChange={(e) => setNewManualParticipant(e.target.value)}
+                      style={{ flex: 1, border: "2px solid #000", padding: "4px 6px", fontSize: "11px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', borderRadius: "4px" }}
+                    />
+                    <button type="submit" style={{ background: "#fff", border: "2px solid #000", padding: "4px 8px", fontSize: "11px", fontWeight: "bold", cursor: "pointer", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>+</button>
+                  </form>
                 )}
               </div>
             </div>
           </>
         ) : (
           <>
-            {/* DESKTOP: Original layout */}
+            {/* DESKTOP: Countdown + Que Llevamos */}
             <div style={styles.gridContainer}>
               {/* Countdown */}
               <div style={styles.section}>
@@ -761,63 +956,6 @@ export default function EventDetailPage() {
                     <div style={styles.countdownLabel}>Seg</div>
                   </div>
                 </div>
-              </div>
-
-              {/* Chat Wall */}
-              <div style={styles.section}>
-                <h3 style={styles.sectionTitle}>Muro</h3>
-                <div style={styles.chatWall}>
-                  {event.messages && event.messages.length > 0 ? (
-                    event.messages.map((msg, idx) => (
-                      <div key={idx} style={styles.message}>
-                        <div style={styles.messageSender}>{msg.sender?.name || "Anónimo"}</div>
-                        <div style={styles.messageText}>{msg.text}</div>
-                      </div>
-                    ))
-                  ) : (
-                    <div style={{ textAlign: "center", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
-                      No hay mensajes aún
-                    </div>
-                  )}
-                </div>
-                <form style={styles.messageForm} onSubmit={handleSendMessage}>
-                  <input
-                    style={styles.input}
-                    type="text"
-                    placeholder="Escribe un mensaje..."
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                  />
-                  <button type="submit" style={styles.sendButton}>Enviar</button>
-                </form>
-              </div>
-            </div>
-
-            {/* Participants + Items grid */}
-            <div style={styles.gridContainer}>
-              {/* Participantes */}
-              <div style={styles.section}>
-                <h3 style={styles.sectionTitle}>Participantes</h3>
-                {event.creator && (
-                  <div style={styles.participantRow}>
-                    <div style={styles.participantName}>
-                      {event.creator.nombre || event.creator.email?.split("@")[0] || "Organizador"}
-                    </div>
-                    <span style={styles.creatorTag}>Creador</span>
-                  </div>
-                )}
-                {event.participants?.filter(p => p._id !== event.creator?._id && p._id !== event.creator).map((p) => (
-                  <div key={p._id} style={styles.participantRow}>
-                    <div style={styles.participantName}>
-                      {p.nombre || p.email?.split("@")[0] || "Participante"}
-                    </div>
-                  </div>
-                ))}
-                {(!event.participants || event.participants.filter(p => p._id !== event.creator?._id).length === 0) && (
-                  <div style={{ textAlign: "center", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', marginTop: "10px" }}>
-                    Aun no hay mas participantes
-                  </div>
-                )}
               </div>
 
               {/* What We're Bringing */}
@@ -865,9 +1003,155 @@ export default function EventDetailPage() {
                 )}
               </div>
             </div>
+
+            {/* DESKTOP: Participants + Muro grid */}
+            <div style={styles.gridContainer}>
+              {/* Participantes */}
+              <div style={styles.section}>
+                <h3 style={styles.sectionTitle}>Participantes</h3>
+                {event.creator && (
+                  <div style={styles.participantRow}>
+                    <div style={styles.participantName}>
+                      {event.creator.nombre || event.creator.email?.split("@")[0] || "Organizador"}
+                    </div>
+                    <span style={styles.creatorTag}>Creador</span>
+                  </div>
+                )}
+                {event.participants?.filter(p => p._id !== event.creator?._id && p._id !== event.creator).map((p) => (
+                  <div key={p._id} style={styles.participantRow}>
+                    <div style={styles.participantName}>
+                      {p.nombre || p.email?.split("@")[0] || "Participante"}
+                    </div>
+                  </div>
+                ))}
+                {event.manualParticipants?.map((name, idx) => (
+                  <div key={`manual-${idx}`} style={styles.participantRow}>
+                    <div style={styles.participantName}>{name}</div>
+                    <span style={{ ...styles.creatorTag, background: "#666" }}>Manual</span>
+                    {isCreator && (
+                      <span style={{ cursor: "pointer", fontSize: "14px", marginLeft: "auto", color: "#cc0000" }} onClick={() => handleRemoveManualParticipant(idx)}>&#10005;</span>
+                    )}
+                  </div>
+                ))}
+                {(!event.participants || event.participants.filter(p => p._id !== event.creator?._id).length === 0) && (!event.manualParticipants || event.manualParticipants.length === 0) && (
+                  <div style={{ textAlign: "center", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', marginTop: "10px" }}>
+                    Aun no hay mas participantes
+                  </div>
+                )}
+                {isCreator && (
+                  <form style={{ display: "flex", gap: "8px", marginTop: "10px" }} onSubmit={handleAddManualParticipant}>
+                    <input
+                      type="text"
+                      placeholder="Agregar participante..."
+                      value={newManualParticipant}
+                      onChange={(e) => setNewManualParticipant(e.target.value)}
+                      style={{ flex: 1, border: "3px solid #000", padding: "10px", fontSize: "14px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', borderRadius: "5px" }}
+                    />
+                    <button type="submit" style={{ background: "#fff", border: "3px solid #000", padding: "10px 16px", fontSize: "14px", fontWeight: "bold", cursor: "pointer", boxShadow: "2px 2px 0 #000", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>Agregar</button>
+                  </form>
+                )}
+              </div>
+
+              {/* Chat Wall */}
+              <div style={styles.section}>
+                <h3 style={styles.sectionTitle}>Muro</h3>
+                <div style={styles.chatWall}>
+                  {event.messages && event.messages.length > 0 ? (
+                    event.messages.map((msg, idx) => (
+                      <div key={idx} style={styles.message}>
+                        <div style={styles.messageSender}>{msg.sender?.name || "Anónimo"}</div>
+                        <div style={styles.messageText}>{msg.text}</div>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ textAlign: "center", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
+                      No hay mensajes aún
+                    </div>
+                  )}
+                </div>
+                <form style={styles.messageForm} onSubmit={handleSendMessage}>
+                  <input
+                    style={styles.input}
+                    type="text"
+                    placeholder="Escribe un mensaje..."
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                  />
+                  <button type="submit" style={styles.sendButton}>Enviar</button>
+                </form>
+              </div>
+            </div>
           </>
         )}
       </div>
+
+      {/* Location popup after joining */}
+      {showLocationPopup && event?.location && (
+        <div
+          style={{
+            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+            background: "rgba(0,0,0,0.5)", display: "flex",
+            alignItems: "center", justifyContent: "center", zIndex: 9999
+          }}
+          onClick={() => setShowLocationPopup(false)}
+        >
+          <div
+            style={{
+              background: "#fff", border: "3px solid #000", borderRadius: "16px",
+              padding: isMobile ? "24px 20px" : "32px 36px", maxWidth: "400px",
+              width: "90%", boxShadow: "6px 6px 0 #000", textAlign: "center"
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontSize: "32px", marginBottom: "12px" }}>&#127881;</div>
+            <div style={{
+              fontSize: isMobile ? "18px" : "22px", fontWeight: 900,
+              fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
+              marginBottom: "8px"
+            }}>
+              Te uniste al evento!
+            </div>
+            <div style={{
+              fontSize: isMobile ? "14px" : "16px", color: "#666",
+              fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+              marginBottom: "20px"
+            }}>
+              El evento es en:
+            </div>
+            <div style={{
+              fontSize: isMobile ? "18px" : "20px", fontWeight: "bold",
+              fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
+              marginBottom: "20px"
+            }}>
+              {event.location}
+            </div>
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.location)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: "block", background: "#000", color: "#fff",
+                border: "none", borderRadius: "10px", padding: "14px 24px",
+                fontSize: isMobile ? "15px" : "17px", fontWeight: "bold",
+                fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
+                textDecoration: "none", cursor: "pointer", marginBottom: "12px"
+              }}
+            >
+              Abrir en Maps
+            </a>
+            <button
+              onClick={() => setShowLocationPopup(false)}
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                fontSize: "14px", color: "#999",
+                fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive'
+              }}
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

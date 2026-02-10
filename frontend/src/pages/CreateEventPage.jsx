@@ -761,12 +761,12 @@ export default function CreateEventPage() {
             <div style={styles.eventLocation}>
               {eventData.lugar && (
                 <>
-                  • {eventData.lugar}
+                  {eventData.lugar}
                   <br />
                 </>
               )}
               {step >= 6 && (
-                <>• {eventData.costoLabel}</>
+                <>{eventData.costoLabel}</>
               )}
             </div>
             <div style={styles.eventDate}>

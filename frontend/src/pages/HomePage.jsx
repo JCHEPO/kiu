@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useGoogleLogin } from "@react-oauth/google";
+import { io } from "socket.io-client";
 import { AuthContext } from "../context/AuthContext";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
@@ -580,7 +581,7 @@ function EventPostItCard({ event, isLoggedIn, sizeFactor: externalScale }) {
   const cardWidth = isEvento ? 280 : 400;
   const cardHeight = isEvento ? 497 : 250;
 
-  const currentParticipants = event.participants?.length || 0;
+  const currentParticipants = (event.participants?.length || 0) + (event.manualParticipants?.length || 0);
   const maxParticipants = event.maxParticipants || 10;
 
   const formatDate = (dateString) => {
@@ -707,9 +708,9 @@ function EventPostItCard({ event, isLoggedIn, sizeFactor: externalScale }) {
 
       <div style={{ ...cardStyles.bottomSection, ...(isLoggedIn ? {} : cardStyles.blurred) }}>
         <div>
-          {event.location && <div>• {event.location}</div>}
+          {event.location && <div>{event.location}</div>}
           <div>
-            • {event.cost > 0 ? `$${event.cost} por persona` : "Gratis"}
+            {event.cost > 0 ? `$${event.cost} por persona` : "Gratis"}
           </div>
         </div>
 
@@ -725,7 +726,7 @@ function EventPostItCard({ event, isLoggedIn, sizeFactor: externalScale }) {
 }
 
 export default function HomePage() {
-  const { auth, logout } = useContext(AuthContext);
+  const { auth, logout, fetchWithAuth } = useContext(AuthContext);
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -734,6 +735,9 @@ export default function HomePage() {
   const [activeIntent, setActiveIntent] = useState(null);
   const [heroPhrase, setHeroPhrase] = useState(0);
   const [featuredIndex, setFeaturedIndex] = useState(0);
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const notifRef = useRef(null);
   const navigate = useNavigate();
 
   const heroTexts = [
@@ -748,16 +752,6 @@ export default function HomePage() {
     }, 5000);
     return () => clearInterval(interval);
   }, []);
-
-  // Rotate featured event card every 5 seconds
-  useEffect(() => {
-    if (events.length === 0) return;
-    setFeaturedIndex(0);
-    const interval = setInterval(() => {
-      setFeaturedIndex(prev => (prev + 1) % events.length);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [events.length]);
 
   // Intent-based exploration: maps human intentions to filter logic
   const intents = {
@@ -815,19 +809,85 @@ export default function HomePage() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  // Fetch notifications + real-time via Socket.IO
+  useEffect(() => {
+    if (!auth) return;
+    const fetchNotifications = async () => {
+      try {
+        const res = await fetchWithAuth(`${API_URL}/api/notifications`);
+        if (res.ok) {
+          const data = await res.json();
+          setNotifications(data);
+        }
+      } catch (err) {
+        console.error("Error fetching notifications:", err);
+      }
+    };
+    fetchNotifications();
+
+    // Real-time notifications via socket
+    const socket = io(API_URL);
+    socket.emit("join-user", auth.user.id);
+    socket.on("new-notification", (notification) => {
+      setNotifications(prev => [notification, ...prev]);
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [auth]);
+
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const handleMarkAllRead = async () => {
+    try {
+      await fetchWithAuth(`${API_URL}/api/notifications/read-all`, { method: "PUT" });
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    } catch (err) {
+      console.error("Error marking notifications read:", err);
+    }
+  };
+
+  // Close notification panel on outside click
+  useEffect(() => {
+    const handleClickOutsideNotif = (e) => {
+      if (notifRef.current && !notifRef.current.contains(e.target)) {
+        setShowNotifications(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutsideNotif);
+    return () => document.removeEventListener("mousedown", handleClickOutsideNotif);
+  }, []);
+
   const isLoggedIn = !!auth;
   const userName = auth?.user?.nombre || "Usuario";
   const menuRef = useRef(null);
 
-  const filteredEvents = events.filter((ev) => {
-    // Exclude past events
+  // Available events: not past, not full
+  const availableEvents = events.filter((ev) => {
     if (ev.date && new Date(ev.date) < new Date()) return false;
+    const total = (ev.participants?.length || 0) + (ev.manualParticipants?.length || 0);
+    if (total >= ev.maxParticipants) return false;
+    return true;
+  });
+
+  const filteredEvents = availableEvents.filter((ev) => {
     // Intent filter (primary exploration method)
     if (activeIntent) {
       if (!matchesIntent(ev)) return false;
     }
     return true;
   });
+
+  // Rotate featured event card every 5 seconds (only available events)
+  useEffect(() => {
+    if (availableEvents.length === 0) return;
+    setFeaturedIndex(0);
+    const interval = setInterval(() => {
+      setFeaturedIndex(prev => (prev + 1) % availableEvents.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [availableEvents.length]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -1114,13 +1174,79 @@ export default function HomePage() {
       <div style={styles.topBar}>
         <div style={styles.logo}>Kiu</div>
         {isLoggedIn ? (
-          <div ref={menuRef} style={styles.userMenuWrapper}>
-            <button
-              style={styles.welcomeBtn}
-              onClick={() => setShowUserMenu(!showUserMenu)}
-            >
-              {auth?.user?.genero === "Mujer" ? "Bienvenida" : "Bienvenido"}, {userName} ▾
-            </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            {/* Notification Bell */}
+            <div ref={notifRef} style={{ position: "relative" }}>
+              <button
+                onClick={() => setShowNotifications(!showNotifications)}
+                style={{ background: "none", border: "none", cursor: "pointer", fontSize: "22px", position: "relative", padding: "4px" }}
+              >
+                &#128276;
+                {unreadCount > 0 && (
+                  <span style={{
+                    position: "absolute", top: "-2px", right: "-4px",
+                    background: "#ff4444", color: "#fff", borderRadius: "50%",
+                    width: "18px", height: "18px", fontSize: "11px",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontWeight: "bold", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif'
+                  }}>{unreadCount}</span>
+                )}
+              </button>
+              {showNotifications && (
+                <div style={{
+                  position: "absolute", top: "100%", right: 0, marginTop: "8px",
+                  background: "#fff", border: "3px solid #000", borderRadius: "12px",
+                  boxShadow: "4px 4px 0 #000", width: isMobile ? "280px" : "340px",
+                  maxHeight: "400px", overflowY: "auto", zIndex: 1000
+                }}>
+                  <div style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "12px 16px", borderBottom: "2px solid #eee"
+                  }}>
+                    <span style={{ fontWeight: 900, fontSize: "16px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>Notificaciones</span>
+                    {unreadCount > 0 && (
+                      <button
+                        onClick={handleMarkAllRead}
+                        style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}
+                      >Marcar todas leidas</button>
+                    )}
+                  </div>
+                  {notifications.length === 0 ? (
+                    <div style={{ padding: "20px", textAlign: "center", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
+                      No hay notificaciones
+                    </div>
+                  ) : (
+                    notifications.map((n) => (
+                      <div
+                        key={n._id}
+                        onClick={() => { setShowNotifications(false); if (n.event?._id) navigate(`/event/${n.event._id}`); }}
+                        style={{
+                          padding: "12px 16px", cursor: "pointer",
+                          borderBottom: "1px solid #eee",
+                          background: n.read ? "#fff" : "#f0f7ff",
+                          transition: "background 0.2s"
+                        }}
+                      >
+                        <div style={{ fontSize: "14px", fontWeight: n.read ? "normal" : "bold", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+                          {n.message}
+                        </div>
+                        <div style={{ fontSize: "11px", color: "#999", marginTop: "4px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
+                          {new Date(n.createdAt).toLocaleDateString("es-CL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div ref={menuRef} style={styles.userMenuWrapper}>
+              <button
+                style={styles.welcomeBtn}
+                onClick={() => setShowUserMenu(!showUserMenu)}
+              >
+                {auth?.user?.genero === "Mujer" ? "Bienvenida" : "Bienvenido"}, {userName} ▾
+              </button>
             {showUserMenu && (
               <div style={styles.dropdown}>
                 <button
@@ -1150,6 +1276,7 @@ export default function HomePage() {
               </div>
             )}
           </div>
+          </div>
         ) : (
           <button style={styles.authButton} onClick={() => setShowLoginModal(true)}>
             Iniciar Sesion
@@ -1175,8 +1302,8 @@ export default function HomePage() {
           <h1 style={styles.title} key={`hero-${heroPhrase}`}>{heroTexts[heroPhrase]}</h1>
 
           {/* Featured event card carousel */}
-          {events.length > 0 && (() => {
-            const feat = events[featuredIndex % events.length];
+          {availableEvents.length > 0 && (() => {
+            const feat = availableEvents[featuredIndex % availableEvents.length];
             if (!feat) return null;
             return (
               <div style={{ display: "flex", justifyContent: "center", margin: "24px auto 0" }}>

@@ -2,6 +2,7 @@ import express from "express";
 import { authenticate, authorize } from "../middleware/auth.middleware.js";
 import Event from "../models/Event.js";
 import User from "../models/User.js";
+import Notification from "../models/Notification.js";
 
 const router = express.Router();
 
@@ -141,6 +142,7 @@ router.post("/:id/join", authenticate, async (req, res) => {
       .populate("items.claimedBy", "email nombre apellido");
 
     res.json(updatedEvent);
+    req.app.get("io").to(req.params.id).emit("event-updated", updatedEvent);
   } catch (err) {
     console.error("Error al unirse al evento:", err);
     res.status(500).json({ error: "Error al unirse al evento" });
@@ -170,6 +172,7 @@ router.post("/:id/leave", authenticate, async (req, res) => {
       .populate("items.claimedBy", "email nombre apellido");
 
     res.json(updatedEvent);
+    req.app.get("io").to(req.params.id).emit("event-updated", updatedEvent);
   } catch (err) {
     console.error("Error al salir del evento:", err);
     res.status(500).json({ error: "Error al salir del evento" });
@@ -201,6 +204,7 @@ router.post("/:id/messages", authenticate, async (req, res) => {
       .populate("items.claimedBy", "email nombre apellido");
 
     res.json(updatedEvent);
+    req.app.get("io").to(req.params.id).emit("event-updated", updatedEvent);
   } catch (err) {
     console.error("Error al agregar mensaje:", err);
     res.status(500).json({ error: "Error al agregar mensaje" });
@@ -234,6 +238,7 @@ router.post("/:id/items", authenticate, async (req, res) => {
       .populate("items.claimedBy", "email nombre apellido");
 
     res.json(updatedEvent);
+    req.app.get("io").to(req.params.id).emit("event-updated", updatedEvent);
   } catch (err) {
     console.error("Error al agregar item:", err);
     res.status(500).json({ error: "Error al agregar item" });
@@ -268,9 +273,151 @@ router.post("/:id/items/:itemId/claim", authenticate, async (req, res) => {
       .populate("items.claimedBy", "email nombre apellido");
 
     res.json(updatedEvent);
+    req.app.get("io").to(req.params.id).emit("event-updated", updatedEvent);
   } catch (err) {
     console.error("Error al reclamar item:", err);
     res.status(500).json({ error: "Error al reclamar item" });
+  }
+});
+
+// PUT /api/events/:id - Editar evento (solo creador)
+router.put("/:id", authenticate, async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+
+    if (!event) {
+      return res.status(404).json({ error: "Evento no encontrado" });
+    }
+
+    if (event.creator.toString() !== req.user.id) {
+      return res.status(403).json({ error: "No autorizado para editar este evento" });
+    }
+
+    const { location, date } = req.body;
+    const changes = [];
+
+    if (location && location !== event.location) {
+      event.location = location;
+      changes.push("lugar");
+    }
+
+    if (date) {
+      const now = new Date();
+      const eventDate = new Date(event.date);
+      const hoursUntilEvent = (eventDate - now) / (1000 * 60 * 60);
+
+      if (hoursUntilEvent < 24) {
+        return res.status(400).json({ error: "No se puede modificar la fecha/hora a menos de 24 horas del evento" });
+      }
+
+      event.date = new Date(date);
+      changes.push("fecha/hora");
+    }
+
+    await event.save();
+
+    // Notificar a participantes de la app (excepto creador)
+    if (changes.length > 0) {
+      const appParticipants = event.participants.filter(p => p.toString() !== req.user.id);
+      const changeText = changes.join(" y ");
+      const notifications = appParticipants.map(userId => ({
+        user: userId,
+        event: event._id,
+        message: `Se actualizó ${changeText} del evento "${event.title}"`,
+        read: false
+      }));
+
+      if (notifications.length > 0) {
+        const savedNotifs = await Notification.insertMany(notifications);
+        const io = req.app.get("io");
+        savedNotifs.forEach(n => {
+          io.to(`user-${n.user}`).emit("new-notification", n);
+        });
+      }
+    }
+
+    const updatedEvent = await Event.findById(req.params.id)
+      .populate("creator", "email nombre apellido")
+      .populate("participants", "email nombre apellido")
+      .populate("messages.sender", "email nombre apellido")
+      .populate("items.claimedBy", "email nombre apellido");
+
+    res.json(updatedEvent);
+    req.app.get("io").to(req.params.id).emit("event-updated", updatedEvent);
+  } catch (err) {
+    console.error("Error al editar evento:", err);
+    res.status(500).json({ error: "Error al editar evento" });
+  }
+});
+
+// POST /api/events/:id/manual-participants - Agregar participante manual (solo creador)
+router.post("/:id/manual-participants", authenticate, async (req, res) => {
+  try {
+    const { name } = req.body;
+    const event = await Event.findById(req.params.id);
+
+    if (!event) {
+      return res.status(404).json({ error: "Evento no encontrado" });
+    }
+
+    if (event.creator.toString() !== req.user.id) {
+      return res.status(403).json({ error: "Solo el creador puede agregar participantes manuales" });
+    }
+
+    const totalParticipants = (event.participants?.length || 0) + (event.manualParticipants?.length || 0);
+    if (totalParticipants >= event.maxParticipants) {
+      return res.status(400).json({ error: "Evento lleno" });
+    }
+
+    event.manualParticipants.push(name);
+    await event.save();
+
+    const updatedEvent = await Event.findById(req.params.id)
+      .populate("creator", "email nombre apellido")
+      .populate("participants", "email nombre apellido")
+      .populate("messages.sender", "email nombre apellido")
+      .populate("items.claimedBy", "email nombre apellido");
+
+    res.json(updatedEvent);
+    req.app.get("io").to(req.params.id).emit("event-updated", updatedEvent);
+  } catch (err) {
+    console.error("Error al agregar participante manual:", err);
+    res.status(500).json({ error: "Error al agregar participante manual" });
+  }
+});
+
+// DELETE /api/events/:id/manual-participants/:index - Remover participante manual (solo creador)
+router.delete("/:id/manual-participants/:index", authenticate, async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+
+    if (!event) {
+      return res.status(404).json({ error: "Evento no encontrado" });
+    }
+
+    if (event.creator.toString() !== req.user.id) {
+      return res.status(403).json({ error: "Solo el creador puede remover participantes manuales" });
+    }
+
+    const index = parseInt(req.params.index);
+    if (index < 0 || index >= event.manualParticipants.length) {
+      return res.status(400).json({ error: "Índice inválido" });
+    }
+
+    event.manualParticipants.splice(index, 1);
+    await event.save();
+
+    const updatedEvent = await Event.findById(req.params.id)
+      .populate("creator", "email nombre apellido")
+      .populate("participants", "email nombre apellido")
+      .populate("messages.sender", "email nombre apellido")
+      .populate("items.claimedBy", "email nombre apellido");
+
+    res.json(updatedEvent);
+    req.app.get("io").to(req.params.id).emit("event-updated", updatedEvent);
+  } catch (err) {
+    console.error("Error al remover participante manual:", err);
+    res.status(500).json({ error: "Error al remover participante manual" });
   }
 });
 

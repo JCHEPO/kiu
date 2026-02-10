@@ -17,6 +17,7 @@ const EventSchema = new mongoose.Schema({
     text: { type: String, required: true },
     createdAt: { type: Date, default: Date.now }
   }],
+  manualParticipants: [{ type: String }],
   items: [{
     name: { type: String, required: true },
     claimedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }
