@@ -41,7 +41,7 @@ router.get("/", async (req, res) => {
 
 // POST /api/events - Crear evento (todos los usuarios logueados)
 router.post("/", authenticate, async (req, res) => {
-  const { title, date, description, location, maxParticipants, category, subcategory, cost, restriccionGenero } = req.body;
+  const { title, date, description, location, maxParticipants, category, subcategory, cost, restriccionGenero, comuna } = req.body;
   try {
     const event = await Event.create({
       title,
@@ -52,6 +52,7 @@ router.post("/", authenticate, async (req, res) => {
       category,
       subcategory,
       cost: cost || 0,
+      comuna: comuna || "",
       restriccionGenero: restriccionGenero || "Mixto",
       creator: req.user.id,
       participants: [req.user.id],

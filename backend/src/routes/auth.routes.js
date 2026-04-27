@@ -29,13 +29,13 @@ router.post("/login", async (req, res) => {
   if (!ok) return res.status(401).json({ error: "Credenciales inválidas" });
 
   const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "1d" });
-  res.json({ token, user: { id: user._id, email: user.email, nombre: user.nombre, apellido: user.apellido, genero: user.genero, fechaNacimiento: user.fechaNacimiento } });
+  res.json({ token, user: { id: user._id, email: user.email, nombre: user.nombre, apellido: user.apellido, genero: user.genero, fechaNacimiento: user.fechaNacimiento, rol: user.rol } });
 });
 
 // Helper to build the user response object
 const buildUserResponse = (user) => ({
   token: jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "1d" }),
-  user: { id: user._id, email: user.email, nombre: user.nombre, apellido: user.apellido, genero: user.genero, fechaNacimiento: user.fechaNacimiento }
+  user: { id: user._id, email: user.email, nombre: user.nombre, apellido: user.apellido, genero: user.genero, fechaNacimiento: user.fechaNacimiento, rol: user.rol }
 });
 
 // Google OAuth

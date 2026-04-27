@@ -1,4 +1,4 @@
-import React, { useState, useContext, useRef } from "react";
+import React, { useState, useEffect, useContext, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthContext } from "../context/AuthContext";
 
@@ -21,10 +21,10 @@ export default function CreateEventPage() {
   // Opciones para Juegos de mesa
   const socialOptions = ["Cartas", "Monopoly", "Puzzle", "Catan", "Otro"];
   const cartasOptions = ["Pokemon", "Magic", "Carioca", "Uno", "Otro"];
-
   // Estado equivalente a tu script JS
   const [eventData, setEventData] = useState({
     tipo: "",
+    eventoDescripcion: "", // Descripción del evento (máx 3 palabras)
     deporte: "",
     personas: "",
     customCount: "", // Para contador personalizado
@@ -42,6 +42,29 @@ export default function CreateEventPage() {
   });
   const [step, setStep] = useState(1);
   const [createdEventId, setCreatedEventId] = useState(null);
+  const [lugares, setLugares] = useState([]);
+  const [lugaresLoading, setLugaresLoading] = useState(false);
+
+  useEffect(() => {
+    if (!eventData.restriccionGenero) return;
+    const fetchLugares = async () => {
+      setLugaresLoading(true);
+      try {
+        const cat = eventData.tipo === "Partido de futbol"
+          ? "cancha"
+          : "bar,cafetería,tienda,biblioteca,plaza";
+        const res = await fetch(`${API_URL}/api/canchas?categoria=${encodeURIComponent(cat)}`);
+        const data = await res.json();
+        setLugares(data);
+      } catch (err) {
+        console.error("Error fetching lugares:", err);
+        setLugares([]);
+      } finally {
+        setLugaresLoading(false);
+      }
+    };
+    fetchLugares();
+  }, [eventData.tipo, eventData.restriccionGenero]);
 
   const dateInputRef = useRef(null);
   const timeInputRef = useRef(null);
@@ -64,7 +87,11 @@ export default function CreateEventPage() {
       return eventData.deporte;
     }
 
-    // For "Evento", just show tipo
+    // For "Evento", show the description
+    if (eventData.tipo === "Evento") {
+      return eventData.eventoDescripcion || "Evento";
+    }
+
     return eventData.tipo;
   })();
 
@@ -154,6 +181,10 @@ export default function CreateEventPage() {
         next.dateOption = "";
         next.rawDate = "";
         next.displayDate = "02 de Febrero";
+        // Para tipo Evento, también resetear descripción
+        if (value === "Evento") {
+          next.eventoDescripcion = "";
+        }
       }
       if (field === "deporte") {
         next.deporte = value;
@@ -212,7 +243,10 @@ export default function CreateEventPage() {
         next.displayDate = "02 de Febrero";
 
         // Actualizar costoLabel según el tipo de lugar
-        const isBarOrCafe = value === "Bar" || value === "Cafetería";
+        const lugarObj = lugares.find(l => l.nombre === value);
+        const isBarOrCafe = lugarObj
+          ? (lugarObj.categoria === "bar" || lugarObj.categoria === "cafetería")
+          : (value === "Bar" || value === "Cafetería");
         if (next.gratis) {
           next.costoLabel = isBarOrCafe ? "Sin consumo mínimo" : "Gratis";
         } else if (next.costoNumber) {
@@ -237,6 +271,12 @@ export default function CreateEventPage() {
     }
     if (field === "cartasTipo") {
       setStep(2); // Ahora sí avanzar a personas
+    }
+    if (field === "eventoDescripcion") {
+      // Para tipo Evento, avanzar a personas después de descripción
+      if (value && value.trim()) {
+        setStep(3);
+      }
     }
     if (field === "personas") {
       setStep(3);
@@ -370,7 +410,8 @@ export default function CreateEventPage() {
   // Gratis / no gratis
   const handleGratisChange = (isFree) => {
     setEventData((prev) => {
-      const isBarOrCafe = prev.lugarOption === "Bar" || prev.lugarOption === "Cafetería";
+      const lugarObj = lugares.find(l => l.nombre === prev.lugarOption);
+      const isBarOrCafe = lugarObj ? (lugarObj.categoria === "bar" || lugarObj.categoria === "cafetería") : (prev.lugarOption === "Bar" || prev.lugarOption === "Cafetería");
       return {
         ...prev,
         gratis: isFree,
@@ -386,7 +427,8 @@ export default function CreateEventPage() {
   const handleCostoInput = (value) => {
     const num = Number(value || 0);
     setEventData((prev) => {
-      const isBarOrCafe = prev.lugarOption === "Bar" || prev.lugarOption === "Cafetería";
+      const lugarObj = lugares.find(l => l.nombre === prev.lugarOption);
+      const isBarOrCafe = lugarObj ? (lugarObj.categoria === "bar" || lugarObj.categoria === "cafetería") : (prev.lugarOption === "Bar" || prev.lugarOption === "Cafetería");
       return {
         ...prev,
         costoNumber: num,
@@ -410,6 +452,17 @@ export default function CreateEventPage() {
       restriccionGenero: ""
     }));
     if (num && num > 0) {
+      setStep((prev) => Math.max(prev, 3));
+    }
+  };
+
+  // Handler para descripción del evento (máx 3 palabras)
+  const handleEventoDescripcionChange = (value) => {
+    setEventData((prev) => ({
+      ...prev,
+      eventoDescripcion: value
+    }));
+    if (value && prev.personas) {
       setStep((prev) => Math.max(prev, 3));
     }
   };
@@ -450,7 +503,7 @@ export default function CreateEventPage() {
 
     const payload = {
       title,
-      description: "",
+      description: eventData.eventoDescripcion || "",
       category,
       subcategory,
       tags: [],
@@ -461,7 +514,8 @@ export default function CreateEventPage() {
       date: dateIso,
       time: eventData.hora,
       location: eventData.lugar,
-      cost: eventData.gratis ? 0 : eventData.costoNumber || 0
+      cost: eventData.gratis ? 0 : eventData.costoNumber || 0,
+      comuna: ""
     };
 
     try {
@@ -908,11 +962,36 @@ export default function CreateEventPage() {
             </div>
           )}
 
+          {/* Descripción del Evento (máx 3 palabras) */}
+          {eventData.tipo === "Evento" && (
+            <div
+              style={{
+                ...styles.questionGroup,
+                marginBottom: eventData.eventoDescripcion ? "20px" : "28px"
+              }}
+            >
+              <h2 style={styles.questionTitle}>Describelo en tres palabras máx.</h2>
+              <div style={styles.options}>
+                <input
+                  type="text"
+                  style={{
+                    ...styles.valorInput,
+                    minWidth: "250px"
+                  }}
+                  placeholder="Ej: Cena, study, asado"
+                  value={eventData.eventoDescripcion || ""}
+                  onChange={(e) => handleEventoDescripcionChange(e.target.value)}
+                  maxLength={30}
+                />
+              </div>
+            </div>
+          )}
+
           {/* Número de personas */}
           {step >= 2 &&
             ((eventData.tipo === "Partido de futbol" && eventData.deporte) ||
              (eventData.tipo === "Juegos de mesa" && eventData.deporte && (eventData.deporte !== "Cartas" || eventData.cartasTipo)) ||
-             (eventData.tipo === "Evento")) && (
+             (eventData.tipo === "Evento" && eventData.eventoDescripcion)) && (
               <div
                 style={{
                   ...styles.questionGroup,
@@ -1010,31 +1089,134 @@ export default function CreateEventPage() {
             >
               <h2 style={styles.questionTitle}>Donde ?</h2>
 
-              {/* Opciones para Social */}
-              {eventData.tipo === "Juegos de mesa" && (
-                <>
+              {eventData.tipo === "Partido de futbol" ? (
+                lugaresLoading ? (
+                  <div style={{ textAlign: "center", padding: "20px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
+                    Cargando canchas...
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: isMobile ? "10px" : "16px", flexDirection: isMobile ? "column" : "row", justifyContent: "center" }}>
+                    {/* Box Gratuitas */}
+                    <div style={{
+                      flex: 1,
+                      background: "#e8f5e9",
+                      border: "3px solid #333",
+                      borderRadius: "0px",
+                      padding: isMobile ? "12px" : "16px",
+                      boxShadow: "3px 3px 0 #000"
+                    }}>
+                      <div style={{
+                        fontSize: isMobile ? "14px" : "16px",
+                        fontWeight: "bold",
+                        textAlign: "center",
+                        marginBottom: "10px",
+                        fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                        textTransform: "uppercase"
+                      }}>
+                        Gratuitas
+                      </div>
+                      <select
+                        style={{
+                          width: "100%",
+                          padding: isMobile ? "8px" : "10px 14px",
+                          border: "2px solid #000",
+                          borderRadius: "0px",
+                          fontSize: isMobile ? "13px" : "15px",
+                          fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                          fontWeight: "bold",
+                          background: "#fff",
+                          boxSizing: "border-box"
+                        }}
+                        value={(() => { const sel = lugares.find(l => l.nombre === eventData.lugarOption); return sel && sel.gratuita !== false ? eventData.lugarOption : ""; })()}
+                        onChange={(e) => handleOptionClick("lugar", e.target.value)}
+                      >
+                        <option value="" disabled>Elegir cancha</option>
+                        {lugares.filter(l => l.gratuita !== false).map((lugar) => (
+                          <option key={lugar._id} value={lugar.nombre}>{lugar.nombre} - {lugar.comuna}</option>
+                        ))}
+                      </select>
+                      {lugares.filter(l => l.gratuita !== false).length === 0 && (
+                        <div style={{ textAlign: "center", padding: "8px", color: "#999", fontSize: "13px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
+                          No hay canchas gratuitas
+                        </div>
+                      )}
+                    </div>
+                    {/* Box Pagadas */}
+                    <div style={{
+                      flex: 1,
+                      background: "#fff3e0",
+                      border: "3px solid #333",
+                      borderRadius: "0px",
+                      padding: isMobile ? "12px" : "16px",
+                      boxShadow: "3px 3px 0 #000"
+                    }}>
+                      <div style={{
+                        fontSize: isMobile ? "14px" : "16px",
+                        fontWeight: "bold",
+                        textAlign: "center",
+                        marginBottom: "10px",
+                        fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                        textTransform: "uppercase"
+                      }}>
+                        Pagadas
+                      </div>
+                      <select
+                        style={{
+                          width: "100%",
+                          padding: isMobile ? "8px" : "10px 14px",
+                          border: "2px solid #000",
+                          borderRadius: "0px",
+                          fontSize: isMobile ? "13px" : "15px",
+                          fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                          fontWeight: "bold",
+                          background: "#fff",
+                          boxSizing: "border-box"
+                        }}
+                        value={(() => { const sel = lugares.find(l => l.nombre === eventData.lugarOption); return sel && sel.gratuita === false ? eventData.lugarOption : ""; })()}
+                        onChange={(e) => handleOptionClick("lugar", e.target.value)}
+                      >
+                        <option value="" disabled>Elegir cancha</option>
+                        {lugares.filter(l => l.gratuita === false).map((lugar) => (
+                          <option key={lugar._id} value={lugar.nombre}>{lugar.nombre} - {lugar.comuna}</option>
+                        ))}
+                      </select>
+                      {lugares.filter(l => l.gratuita === false).length === 0 && (
+                        <div style={{ textAlign: "center", padding: "8px", color: "#999", fontSize: "13px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
+                          No hay canchas pagadas
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              ) : (
+                lugaresLoading ? (
+                  <div style={{ textAlign: "center", padding: "20px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
+                    Cargando lugares...
+                  </div>
+                ) : lugares.length > 0 ? (
                   <div style={styles.options}>
-                    {["Bar", "Cafetería", "Tienda", "Biblioteca", "Plaza"].map((val) => {
-                      const selected = eventData.lugarOption === val;
-                      const someSelected = !!eventData.lugarOption && !["Otro"].includes(eventData.lugarOption);
+                    {lugares.map((lugar) => {
+                      const selected = eventData.lugarOption === lugar.nombre;
+                      const someSelected = !!eventData.lugarOption && eventData.lugarOption !== "Otro";
                       const dimmed = someSelected && !selected;
                       return (
                         <button
-                          key={val}
+                          key={lugar._id}
                           type="button"
                           style={styles.sketchBtn(selected, false, dimmed)}
-                          onClick={() => handleOptionClick("lugar", val)}
+                          onClick={() => handleOptionClick("lugar", lugar.nombre)}
                         >
-                          {val}
+                          {lugar.nombre}
                         </button>
                       );
                     })}
                   </div>
+                ) : (
                   <div style={{ ...styles.options, marginTop: 15 }}>
                     <input
                       type="text"
                       style={styles.valorInput}
-                      placeholder="Ingresa otra ubicación..."
+                      placeholder="Ingresar otra ubicación..."
                       value={eventData.lugarOption === "Otro" ? eventData.lugar : ""}
                       onChange={(e) => {
                         const value = e.target.value;
@@ -1049,44 +1231,7 @@ export default function CreateEventPage() {
                       }}
                     />
                   </div>
-                </>
-              )}
-
-              {/* Opciones para Partido y Evento */}
-              {eventData.tipo !== "Juegos de mesa" && (
-                <>
-                  <div style={styles.options}>
-                    <select
-                      style={styles.dateInput}
-                      value={eventData.lugarOption}
-                      onChange={(e) => handleOptionClick("lugar", e.target.value)}
-                    >
-                      <option value="" disabled>
-                        Qué cancha
-                      </option>
-                      <option value="Parque Ecuador">Parque Ecuador</option>
-                      <option value="Canchas Universidad">Canchas Universidad</option>
-                      <option value="Otro">Otro</option>
-                    </select>
-                  </div>
-                  {eventData.lugarOption === "Otro" && (
-                    <div style={{ ...styles.options, marginTop: 10 }}>
-                      <input
-                        type="text"
-                        style={styles.valorInput}
-                        placeholder="Escribe el lugar..."
-                        value={eventData.lugarOption === "Otro" ? eventData.lugar : ""}
-                        onChange={(e) =>
-                          setEventData((prev) => ({
-                            ...prev,
-                            lugar: e.target.value
-                          }))
-                        }
-                        required
-                      />
-                    </div>
-                  )}
-                </>
+                )
               )}
             </div>
           )}
@@ -1200,7 +1345,7 @@ export default function CreateEventPage() {
           {step >= 6 && (
             <div style={styles.questionGroup}>
               {/* Si es Bar o Cafetería, preguntar por consumo mínimo */}
-              {(eventData.lugarOption === "Bar" || eventData.lugarOption === "Cafetería") ? (
+              {(() => { const lo = lugares.find(l => l.nombre === eventData.lugarOption); return lo ? (lo.categoria === "bar" || lo.categoria === "cafetería") : (eventData.lugarOption === "Bar" || eventData.lugarOption === "Cafetería"); })() ? (
                 <>
                   <h2 style={styles.questionTitle}>Consumo mínimo ?</h2>
                   <div style={styles.options}>

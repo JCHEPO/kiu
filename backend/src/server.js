@@ -6,6 +6,7 @@ import cors from "cors";
 import authRoutes from "./routes/auth.routes.js";
 import eventsRoutes from "./routes/events.routes.js";
 import notificationsRoutes from "./routes/notifications.routes.js";
+import canchasRoutes from "./routes/canchas.routes.js";
 
 mongoose.connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/petu");
 
@@ -43,6 +44,7 @@ io.on("connection", (socket) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/events", eventsRoutes);
 app.use("/api/notifications", notificationsRoutes);
+app.use("/api/canchas", canchasRoutes);
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`Backend running on ${PORT}`));

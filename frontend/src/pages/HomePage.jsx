@@ -732,7 +732,14 @@ export default function HomePage() {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  const [activeIntent, setActiveIntent] = useState(null);
+  const [filterComuna, setFilterComuna] = useState(null);
+  const [filterCuando, setFilterCuando] = useState(null);
+  const [filterTipo, setFilterTipo] = useState(null);
+  const [filterPersonas, setFilterPersonas] = useState(null);
+  const [openFilter, setOpenFilter] = useState(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [selectedRegion, setSelectedRegion] = useState("Gran Concepción");
+  const [showRegionPicker, setShowRegionPicker] = useState(false);
   const [heroPhrase, setHeroPhrase] = useState(0);
   const [featuredIndex, setFeaturedIndex] = useState(0);
   const [notifications, setNotifications] = useState([]);
@@ -753,54 +760,29 @@ export default function HomePage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Intent-based exploration: maps human intentions to filter logic
-  const intents = {
-    "Quiero salir": {
-      emoji: "🎉",
-      keywords: ["fiesta", "carrete", "bar", "pub", "discoteca", "noche", "junta", "asado", "terraza", "brunch", "cafe", "café"],
-      categories: ["Social"],
-      description: "Fiestas, juntas, carretes"
+  // Filter categories for combinable search
+  const filterCategories = {
+    comuna: {
+      label: "Dónde",
+      options: ["Concepción", "Talcahuano", "Chiguayante", "San Pedro", "Hualpén", "Penco", "Tomé", "Coronel"]
     },
-    "Quiero jugar": {
-      emoji: "🎮",
-      keywords: ["partido", "futbol", "voley", "tenis", "padel", "basket", "cartas", "pokemon", "magic", "uno", "juego", "gaming"],
-      categories: ["Partido"],
-      description: "Deportes, juegos, cartas"
+    cuando: {
+      label: "Cuándo",
+      options: ["Próximas 3h", "Hoy", "Mañana", "Este finde"]
     },
-    "Conocer gente": {
-      emoji: "👋",
-      keywords: ["meetup", "networking", "social", "comunidad", "grupo", "nuevo", "conocer", "amigos"],
-      categories: ["Social"],
-      excludeKeywords: ["clase", "taller", "curso"],
-      description: "Meetups, nuevos amigos"
+    tipo: {
+      label: "Tipo",
+      options: ["Deporte", "Un local", "Aire libre", "Clases"]
     },
-    "Aprender algo": {
-      emoji: "📚",
-      keywords: ["clase", "taller", "curso", "workshop", "charla", "conferencia", "capacitacion", "tutorial", "aprende"],
-      categories: [],
-      description: "Clases, talleres, cursos"
+    personas: {
+      label: "Personas",
+      options: ["Menos de 5", "Hasta 14", "Hasta 22"]
     }
   };
 
-  const matchesIntent = (ev) => {
-    if (!activeIntent) return true;
-    const intent = intents[activeIntent];
-    if (!intent) return true;
+  const hasActiveFilters = filterComuna || filterCuando || filterTipo || filterPersonas;
 
-    const title = (ev.title || "").toLowerCase();
-    const desc = (ev.description || "").toLowerCase();
-    const loc = (ev.location || "").toLowerCase();
-    const combined = `${title} ${desc} ${loc}`;
-
-    // Check excluded keywords first
-    if (intent.excludeKeywords?.some(k => combined.includes(k))) return false;
-
-    // Match by keywords OR category
-    const keywordMatch = intent.keywords.some(k => combined.includes(k));
-    const categoryMatch = intent.categories.length > 0 && intent.categories.includes(ev.category);
-
-    return keywordMatch || categoryMatch;
-  };
+  const regionOptions = ["Gran Concepción", "Chillán", "Región Metropolitana"];
 
   // Mobile detection
   useEffect(() => {
@@ -872,10 +854,47 @@ export default function HomePage() {
   });
 
   const filteredEvents = availableEvents.filter((ev) => {
-    // Intent filter (primary exploration method)
-    if (activeIntent) {
-      if (!matchesIntent(ev)) return false;
+    // Filter by comuna
+    if (filterComuna && !ev.comuna?.toLowerCase().includes(filterComuna.toLowerCase())) return false;
+
+    // Filter by cuando (time range)
+    if (filterCuando) {
+      const eventDate = new Date(ev.date);
+      const now = new Date();
+      if (filterCuando === "Próximas 3h") {
+        if (eventDate - now > 3 * 60 * 60 * 1000 || eventDate < now) return false;
+      } else if (filterCuando === "Hoy") {
+        if (eventDate.toDateString() !== now.toDateString()) return false;
+      } else if (filterCuando === "Mañana") {
+        const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
+        if (eventDate.toDateString() !== tomorrow.toDateString()) return false;
+      } else if (filterCuando === "Este finde") {
+        const dayOfWeek = now.getDay();
+        const friday = new Date(now);
+        friday.setDate(now.getDate() + ((5 - dayOfWeek + 7) % 7));
+        friday.setHours(0, 0, 0, 0);
+        const monday = new Date(friday);
+        monday.setDate(friday.getDate() + 3);
+        if (eventDate < friday || eventDate >= monday) return false;
+      }
     }
+
+    // Filter by tipo
+    if (filterTipo) {
+      const combined = `${ev.title} ${ev.description} ${ev.location}`.toLowerCase();
+      if (filterTipo === "Deporte" && ev.category !== "Partido") return false;
+      if (filterTipo === "Un local" && !["bar", "cafetería", "cafe", "café", "tienda", "restaurant", "pub"].some(k => combined.includes(k))) return false;
+      if (filterTipo === "Aire libre" && !["parque", "cancha", "playa", "plaza", "aire libre"].some(k => combined.includes(k))) return false;
+      if (filterTipo === "Clases" && !["clase", "taller", "curso", "workshop", "charla"].some(k => combined.includes(k))) return false;
+    }
+
+    // Filter by personas (maxParticipants)
+    if (filterPersonas) {
+      if (filterPersonas === "Menos de 5" && ev.maxParticipants >= 5) return false;
+      if (filterPersonas === "Hasta 14" && ev.maxParticipants > 14) return false;
+      if (filterPersonas === "Hasta 22" && ev.maxParticipants > 22) return false;
+    }
+
     return true;
   });
 
@@ -1073,46 +1092,62 @@ export default function HomePage() {
       boxShadow: "none",
       textTransform: "uppercase"
     },
-    intentContainer: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: isMobile ? "10px" : "14px",
-      maxWidth: isMobile ? "340px" : "500px",
+    filterSection: {
+      maxWidth: isMobile ? "100%" : "600px",
       margin: "0 auto 30px",
       padding: "0 10px"
     },
-    intentChip: {
-      padding: isMobile ? "12px 16px" : "14px 24px",
-      borderRadius: "12px",
-      border: "3px solid #333",
-      fontSize: isMobile ? "14px" : "16px",
-      fontWeight: 700,
+    filterTitlesRow: {
+      display: "flex",
+      justifyContent: "center",
+      gap: isMobile ? "8px" : "12px",
+      marginBottom: "14px"
+    },
+    filterTitle: (isOpen, hasValue) => ({
+      padding: isMobile ? "10px 16px" : "12px 22px",
+      borderRadius: "25px",
+      border: hasValue ? "2px solid #000" : "2px solid #bbb",
+      fontSize: isMobile ? "14px" : "15px",
+      fontWeight: 800,
       fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
+      cursor: "pointer",
+      transition: "all 0.15s ease",
+      background: hasValue ? "#000" : isOpen ? "#f0f0f0" : "#fff",
+      color: hasValue ? "#fff" : "#000",
+      whiteSpace: "nowrap"
+    }),
+    filterOptionsRow: {
+      display: "flex",
+      gap: "8px",
+      justifyContent: "center",
+      flexWrap: "wrap",
+      marginBottom: "10px"
+    },
+    filterChip: {
+      padding: isMobile ? "8px 14px" : "10px 18px",
+      borderRadius: "20px",
+      border: "2px solid #333",
+      fontSize: isMobile ? "13px" : "14px",
+      fontWeight: 600,
+      fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
       cursor: "pointer",
       transition: "all 0.15s ease",
       background: "#fff",
       color: "#000",
-      boxShadow: "3px 3px 0 #000",
-      display: "flex",
-      alignItems: "center",
-      gap: "8px"
+      whiteSpace: "nowrap"
     },
-    intentChipActive: {
-      padding: isMobile ? "12px 16px" : "14px 24px",
-      borderRadius: "12px",
-      border: "3px solid #000",
-      fontSize: isMobile ? "14px" : "16px",
-      fontWeight: 700,
-      fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
+    filterChipActive: {
+      padding: isMobile ? "8px 14px" : "10px 18px",
+      borderRadius: "20px",
+      border: "2px solid #000",
+      fontSize: isMobile ? "13px" : "14px",
+      fontWeight: 600,
+      fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
       cursor: "pointer",
       transition: "all 0.15s ease",
       background: "#000",
       color: "#fff",
-      boxShadow: "none",
-      transform: "translate(3px, 3px)",
-      display: "flex",
-      alignItems: "center",
-      gap: "8px"
+      whiteSpace: "nowrap"
     },
     eventsSection: {
       marginTop: "40px"
@@ -1173,6 +1208,67 @@ export default function HomePage() {
       {/* Top Bar */}
       <div style={styles.topBar}>
         <div style={styles.logo}>Kiu</div>
+
+        {/* Region selector */}
+        <span style={{ position: "relative", display: "inline-block" }}>
+          <button
+            onClick={() => setShowRegionPicker(!showRegionPicker)}
+            style={{
+              fontSize: isMobile ? "14px" : "16px",
+              fontWeight: 800,
+              fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
+              background: "#000",
+              color: "#fff",
+              border: "none",
+              borderRadius: "20px",
+              padding: isMobile ? "6px 14px" : "8px 18px",
+              cursor: "pointer",
+              whiteSpace: "nowrap"
+            }}
+          >
+            {selectedRegion} ▾
+          </button>
+          {showRegionPicker && (
+            <div style={{
+              position: "absolute",
+              top: "100%",
+              left: "50%",
+              transform: "translateX(-50%)",
+              marginTop: "8px",
+              background: "#fff",
+              border: "3px solid #000",
+              borderRadius: "14px",
+              boxShadow: "4px 4px 0 #000",
+              zIndex: 100,
+              overflow: "hidden",
+              minWidth: "220px"
+            }}>
+              {regionOptions.map((region) => (
+                <button
+                  key={region}
+                  onClick={() => { setSelectedRegion(region); setShowRegionPicker(false); }}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    padding: "14px 20px",
+                    background: selectedRegion === region ? "#f0f0f0" : "#fff",
+                    border: "none",
+                    borderBottom: "1px solid #eee",
+                    fontSize: "15px",
+                    fontWeight: selectedRegion === region ? 800 : 600,
+                    fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
+                    cursor: "pointer",
+                    textAlign: "left",
+                    color: "#000"
+                  }}
+                >
+                  {region}
+                </button>
+              ))}
+            </div>
+          )}
+        </span>
+
         {isLoggedIn ? (
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             {/* Notification Bell */}
@@ -1343,7 +1439,7 @@ export default function HomePage() {
               <>
                 <button
                   style={styles.btnPrimary}
-                  onClick={() => document.getElementById("events-section")?.scrollIntoView({ behavior: "smooth" })}
+                  onClick={() => { setShowFilters(true); document.getElementById("events-section")?.scrollIntoView({ behavior: "smooth" }); }}
                 >
                   Explorar Eventos
                 </button>
@@ -1358,7 +1454,7 @@ export default function HomePage() {
               <>
                 <button
                   style={styles.btnPrimary}
-                  onClick={() => document.getElementById("events-section")?.scrollIntoView({ behavior: "smooth" })}
+                  onClick={() => { setShowFilters(true); document.getElementById("events-section")?.scrollIntoView({ behavior: "smooth" }); }}
                 >
                   Explorar Eventos
                 </button>
@@ -1375,25 +1471,66 @@ export default function HomePage() {
 
         {/* Events Grid */}
         <div style={styles.eventsSection} id="events-section">
-          {/* Intent-based exploration */}
-          <div style={styles.intentContainer}>
-            {Object.entries(intents).map(([intentName, intent]) => (
-              <button
-                key={intentName}
-                style={activeIntent === intentName ? styles.intentChipActive : styles.intentChip}
-                onClick={() => setActiveIntent(activeIntent === intentName ? null : intentName)}
-              >
-                <span>{intent.emoji}</span>
-                <span>{intentName}</span>
-              </button>
-            ))}
-          </div>
+          {/* Combinable filters */}
+          {showFilters && <div style={styles.filterSection}>
+            {/* Filter title buttons in a row */}
+            <div style={styles.filterTitlesRow}>
+              {Object.entries(filterCategories).map(([key, cat]) => {
+                const stateMap = { comuna: filterComuna, cuando: filterCuando, tipo: filterTipo, personas: filterPersonas };
+                const current = stateMap[key];
+                return (
+                  <button
+                    key={key}
+                    style={styles.filterTitle(openFilter === key, !!current)}
+                    onClick={() => setOpenFilter(openFilter === key ? null : key)}
+                  >
+                    {cat.label}{current ? `: ${current}` : ""}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Expanded options for the active filter */}
+            {openFilter && (() => {
+              const cat = filterCategories[openFilter];
+              const stateMap = { comuna: filterComuna, cuando: filterCuando, tipo: filterTipo, personas: filterPersonas };
+              const setterMap = { comuna: setFilterComuna, cuando: setFilterCuando, tipo: setFilterTipo, personas: setFilterPersonas };
+              const current = stateMap[openFilter];
+              const setter = setterMap[openFilter];
+              return (
+                <div style={styles.filterOptionsRow}>
+                  {cat.options.map((opt) => (
+                    <button
+                      key={opt}
+                      style={current === opt ? styles.filterChipActive : styles.filterChip}
+                      onClick={() => {
+                        setter(current === opt ? null : opt);
+                      }}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {hasActiveFilters && (
+              <div style={{ textAlign: "center", marginTop: "4px" }}>
+                <button
+                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: "13px", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', textDecoration: "underline" }}
+                  onClick={() => { setFilterComuna(null); setFilterCuando(null); setFilterTipo(null); setFilterPersonas(null); setOpenFilter(null); }}
+                >
+                  Limpiar filtros
+                </button>
+              </div>
+            )}
+          </div>}
 
           {filteredEvents.length === 0 ? (
             <div style={styles.emptyState}>
               <p style={{ fontSize: "18px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
-                {activeIntent
-                  ? `No hay eventos para "${activeIntent}" aun. Proba con otra opcion.`
+                {hasActiveFilters
+                  ? "No hay eventos con esos filtros. Proba con otra combinacion."
                   : "No hay eventos aun. Se el primero en crear uno."}
               </p>
             </div>

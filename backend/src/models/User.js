@@ -10,6 +10,7 @@ const UserSchema = new mongoose.Schema({
   genero: { type: String, enum: ["Hombre", "Mujer", "LGTBQ+"] },
   fechaNacimiento: { type: Date },
   fechaRegistro: { type: Date, default: Date.now },
+  rol: { type: String, enum: ["user", "admin"], default: "user" },
   strikes: { type: Number, default: 0 },
   activo: { type: Boolean, default: true }
 }, {
