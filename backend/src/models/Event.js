@@ -5,6 +5,7 @@ const EventSchema = new mongoose.Schema({
   date: { type: Date, required: true },
   description: { type: String, default: "" },
   location: { type: String, required: true },
+  minParticipants: { type: Number },
   maxParticipants: { type: Number, required: true },
   category: String,
   subcategory: String,

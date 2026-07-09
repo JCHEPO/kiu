@@ -27,8 +27,11 @@ export default function CreateEventPage() {
     eventoDescripcion: "", // Descripción del evento (máx 3 palabras)
     deporte: "",
     personas: "",
-    customCount: "", // Para contador personalizado
+    customCount: "", // Para contador personalizado (Partido)
+    minCount: "",    // Rango mínimo (Evento/Juegos)
+    maxCount: "",    // Rango máximo (Evento/Juegos)
     cartasTipo: "", // Sub-tipo de cartas: Pokemon, Magic, Carioca, Uno, Otro
+    otroJuego: "",  // Descripción libre cuando deporte === "Otro" en Juegos (máx 10 palabras)
     restriccionGenero: "", // "Solo hombres", "Solo mujeres", "Mixto"
     lugar: "",
     lugarOption: "",
@@ -52,6 +55,8 @@ export default function CreateEventPage() {
       try {
         const cat = eventData.tipo === "Partido de futbol"
           ? "cancha"
+          : eventData.tipo === "Juegos de mesa"
+          ? "bar,cafetería,biblioteca"
           : "bar,cafetería,tienda,biblioteca,plaza";
         const res = await fetch(`${API_URL}/api/canchas?categoria=${encodeURIComponent(cat)}`);
         const data = await res.json();
@@ -81,9 +86,8 @@ export default function CreateEventPage() {
 
     if (eventData.tipo === "Juegos de mesa") {
       if (!eventData.deporte) return "Juegos de mesa";
-      if (eventData.deporte === "Cartas" && eventData.cartasTipo) {
-        return `Cartas ${eventData.cartasTipo}`;
-      }
+      if (eventData.deporte === "Cartas" && eventData.cartasTipo) return `Cartas ${eventData.cartasTipo}`;
+      if (eventData.deporte === "Otro") return eventData.otroJuego || "Juegos de mesa";
       return eventData.deporte;
     }
 
@@ -97,6 +101,14 @@ export default function CreateEventPage() {
 
   // Texto de personas para mostrar en línea separada
   const personasText = (() => {
+    if (eventData.tipo === "Juegos de mesa" || eventData.tipo === "Evento") {
+      if (eventData.maxCount) {
+        return eventData.minCount
+          ? `${eventData.minCount}–${eventData.maxCount} personas`
+          : `${eventData.maxCount} personas`;
+      }
+      return "";
+    }
     if (eventData.customCount) {
       return `${eventData.customCount} personas`;
     }
@@ -105,6 +117,9 @@ export default function CreateEventPage() {
 
   // Calcular maxParticipants basado en el formato
   const maxParticipants = (() => {
+    if ((eventData.tipo === "Juegos de mesa" || eventData.tipo === "Evento") && parseInt(eventData.maxCount) > 0) {
+      return parseInt(eventData.maxCount);
+    }
     // Si hay un contador personalizado, usarlo
     if (eventData.customCount && parseInt(eventData.customCount) > 0) {
       return parseInt(eventData.customCount);
@@ -134,7 +149,7 @@ export default function CreateEventPage() {
 
     if (eventData.tipo) completedFields++;
     if (eventData.deporte || eventData.tipo === "Evento") completedFields++;
-    if (eventData.personas || eventData.customCount) completedFields++;
+    if (eventData.personas || eventData.customCount || eventData.maxCount) completedFields++;
     if (eventData.restriccionGenero) completedFields++;
     if (eventData.lugar) completedFields++;
     if (eventData.dateOption && eventData.hora) completedFields++;
@@ -174,7 +189,10 @@ export default function CreateEventPage() {
         }
         next.personas = "";
         next.customCount = "";
+        next.minCount = "";
+        next.maxCount = "";
         next.cartasTipo = "";
+        next.otroJuego = "";
         next.restriccionGenero = "";
         next.lugar = "";
         next.lugarOption = "";
@@ -190,8 +208,11 @@ export default function CreateEventPage() {
         next.deporte = value;
         // Resetear todo lo posterior cuando cambia el deporte
         next.cartasTipo = "";
+        next.otroJuego = "";
         next.personas = "";
         next.customCount = "";
+        next.minCount = "";
+        next.maxCount = "";
         next.restriccionGenero = "";
         next.lugar = "";
         next.lugarOption = "";
@@ -204,6 +225,8 @@ export default function CreateEventPage() {
         // Resetear todo lo posterior cuando cambia tipo de cartas
         next.personas = "";
         next.customCount = "";
+        next.minCount = "";
+        next.maxCount = "";
         next.restriccionGenero = "";
         next.lugar = "";
         next.lugarOption = "";
@@ -264,8 +287,8 @@ export default function CreateEventPage() {
       setStep(2);
     }
     if (field === "deporte") {
-      // Si selecciona "Cartas", no avanzar aún - esperar sub-selección
-      if (value !== "Cartas") {
+      // Si selecciona "Cartas" u "Otro", no avanzar aún - esperar sub-selección
+      if (value !== "Cartas" && value !== "Otro") {
         setStep(2);
       }
     }
@@ -456,15 +479,34 @@ export default function CreateEventPage() {
     }
   };
 
+  // Handler para rango de personas (Evento/Juegos)
+  const handleRangeCountInput = (field, value) => {
+    const num = value ? parseInt(value) : "";
+    setEventData(prev => {
+      const next = { ...prev, [field]: num, restriccionGenero: "", lugar: "", lugarOption: "", dateOption: "", rawDate: "", displayDate: "02 de Febrero" };
+      return next;
+    });
+    const min = field === "minCount" ? num : eventData.minCount;
+    const max = field === "maxCount" ? num : eventData.maxCount;
+    if (max && max > 0 && (!min || min <= max)) {
+      setStep(prev => Math.max(prev, 3));
+    }
+  };
+
+  // Handler para "Otro" en Juegos de mesa (máx 10 palabras)
+  const handleOtroJuegoChange = (value) => {
+    const words = value.trim().split(/\s+/).filter(Boolean);
+    if (words.length > 10) return;
+    setEventData(prev => ({ ...prev, otroJuego: value }));
+    if (value.trim()) setStep(prev => Math.max(prev, 2));
+  };
+
   // Handler para descripción del evento (máx 3 palabras)
   const handleEventoDescripcionChange = (value) => {
     setEventData((prev) => ({
       ...prev,
       eventoDescripcion: value
     }));
-    if (value && prev.personas) {
-      setStep((prev) => Math.max(prev, 3));
-    }
   };
 
   // Enviar al backend
@@ -482,9 +524,17 @@ export default function CreateEventPage() {
       category = "Social"; // Mantener "Social" como categoría en BD
     }
 
+    // Validate range for Evento/Juegos
+    if ((eventData.tipo === "Juegos de mesa" || eventData.tipo === "Evento") && eventData.minCount && eventData.maxCount) {
+      if (parseInt(eventData.minCount) > parseInt(eventData.maxCount)) {
+        alert("El mínimo de personas no puede ser mayor que el máximo");
+        return;
+      }
+    }
+
     const subcategory = eventData.personas === "custom"
       ? eventData.customCount.toString()
-      : eventData.personas || "";
+      : (eventData.maxCount ? (eventData.minCount ? `${eventData.minCount}-${eventData.maxCount}` : eventData.maxCount.toString()) : eventData.personas || "");
 
     // Convertir fecha+hora a ISO para Mongo (Date)
     let dateIso;
@@ -501,6 +551,10 @@ export default function CreateEventPage() {
       return;
     }
 
+    // Auto-add pelota item for ball sports
+    const ballSports = ["Futbol", "Voleyball", "Handball", "Basket"];
+    const needsBall = eventData.tipo === "Partido de futbol" && ballSports.includes(eventData.deporte);
+
     const payload = {
       title,
       description: eventData.eventoDescripcion || "",
@@ -509,13 +563,15 @@ export default function CreateEventPage() {
       tags: [],
       invitees: [],
       mode: "direct",
+      minParticipants: eventData.minCount ? parseInt(eventData.minCount) : undefined,
       maxParticipants,
       restriccionGenero: eventData.restriccionGenero || "Mixto",
       date: dateIso,
       time: eventData.hora,
       location: eventData.lugar,
       cost: eventData.gratis ? 0 : eventData.costoNumber || 0,
-      comuna: ""
+      comuna: "",
+      items: needsBall ? [{ name: "Pelota" }] : []
     };
 
     try {
@@ -779,7 +835,7 @@ export default function CreateEventPage() {
           filter: `saturate(${getSaturation()})`
         }}>
           {/* Rating solo si hay personas seleccionadas */}
-          {(eventData.personas || eventData.customCount) && (
+          {(eventData.personas || eventData.customCount || eventData.maxCount) && (
             <div style={styles.rating}>1/{maxParticipants}</div>
           )}
 
@@ -800,10 +856,10 @@ export default function CreateEventPage() {
                   </>
                 )}
                 {personasText && (
-                  <>
-                    <br />
-                    {personasText}
-                  </>
+                <>
+                  <br />
+                  <span style={{ fontSize: "36px" }}>{personasText}</span>
+                </>
                 )}
               </>
             ) : (
@@ -933,6 +989,27 @@ export default function CreateEventPage() {
             </div>
           )}
 
+          {/* Descripción libre cuando se elige "Otro" en Juegos */}
+          {eventData.tipo === "Juegos de mesa" && eventData.deporte === "Otro" && (
+            <div style={{ ...styles.questionGroup, marginBottom: eventData.otroJuego ? "20px" : "28px" }}>
+              <h2 style={styles.questionTitle}>Ingresa tu juego</h2>
+              <div style={styles.options}>
+                <input
+                  type="text"
+                  autoFocus
+                  style={{ ...styles.valorInput, minWidth: "250px" }}
+                  placeholder="Ej: Dungeons & Dragons, Ajedrez..."
+                  value={eventData.otroJuego || ""}
+                  onChange={e => handleOtroJuegoChange(e.target.value)}
+                  maxLength={80}
+                />
+                <div style={{ fontSize: "11px", color: "#999", fontFamily: '"Patrick Hand", system-ui, cursive', textAlign: "right", width: "100%", maxWidth: "250px" }}>
+                  {eventData.otroJuego ? eventData.otroJuego.trim().split(/\s+/).filter(Boolean).length : 0}/10 palabras
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Sub-opciones de Cartas */}
           {eventData.tipo === "Juegos de mesa" && eventData.deporte === "Cartas" && (
             <div
@@ -990,7 +1067,7 @@ export default function CreateEventPage() {
           {/* Número de personas */}
           {step >= 2 &&
             ((eventData.tipo === "Partido de futbol" && eventData.deporte) ||
-             (eventData.tipo === "Juegos de mesa" && eventData.deporte && (eventData.deporte !== "Cartas" || eventData.cartasTipo)) ||
+             (eventData.tipo === "Juegos de mesa" && eventData.deporte && (eventData.deporte !== "Cartas" || eventData.cartasTipo) && (eventData.deporte !== "Otro" || eventData.otroJuego)) ||
              (eventData.tipo === "Evento" && eventData.eventoDescripcion)) && (
               <div
                 style={{
@@ -1025,26 +1102,51 @@ export default function CreateEventPage() {
                     );
                   })}
 
-                {/* Para Social y Evento, solo mostrar contador */}
+                {/* Para Social y Evento: rango min-max */}
                 {(eventData.tipo === "Juegos de mesa" || eventData.tipo === "Evento") && (
-                  <input
-                    type="number"
-                    style={{
-                      ...styles.valorInput,
-                      minWidth: "200px"
-                    }}
-                    placeholder="Número de personas"
-                    value={eventData.customCount || ""}
-                    onChange={(e) => handleCustomCountInput(e.target.value)}
-                    min={1}
-                  />
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", width: "100%" }}>
+                    <div style={{ display: "flex", gap: "12px", alignItems: "flex-end", justifyContent: "center", flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
+                        <label style={{ fontSize: "13px", fontWeight: "bold", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', color: "#555" }}>
+                          Mínimo
+                        </label>
+                        <input
+                          type="number"
+                          style={{ ...styles.valorInput, minWidth: "110px", maxWidth: "130px" }}
+                          placeholder="Mín"
+                          value={eventData.minCount || ""}
+                          onChange={e => handleRangeCountInput("minCount", e.target.value)}
+                          min={1}
+                        />
+                      </div>
+                      <span style={{ fontSize: "24px", fontWeight: 900, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', paddingBottom: "6px" }}>–</span>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
+                        <label style={{ fontSize: "13px", fontWeight: "bold", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', color: "#555" }}>
+                          Máximo
+                        </label>
+                        <input
+                          type="number"
+                          style={{ ...styles.valorInput, minWidth: "110px", maxWidth: "130px" }}
+                          placeholder="Máx"
+                          value={eventData.maxCount || ""}
+                          onChange={e => handleRangeCountInput("maxCount", e.target.value)}
+                          min={2}
+                        />
+                      </div>
+                    </div>
+                    {eventData.minCount && eventData.maxCount && parseInt(eventData.minCount) > parseInt(eventData.maxCount) && (
+                      <div style={{ color: "#ff4444", fontSize: "13px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', fontWeight: "bold" }}>
+                        El mínimo no puede ser mayor que el máximo
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
               </div>
             )}
 
           {/* Restricción de género */}
-          {step >= 3 && (eventData.personas || eventData.customCount) && (
+          {step >= 3 && (eventData.personas || eventData.customCount || (eventData.maxCount && (!eventData.minCount || parseInt(eventData.minCount) <= parseInt(eventData.maxCount)))) && (
             <div
               style={{
                 ...styles.questionGroup,
@@ -1186,6 +1288,47 @@ export default function CreateEventPage() {
                         </div>
                       )}
                     </div>
+                  </div>
+                )
+              ) : eventData.tipo === "Juegos de mesa" ? (
+                lugaresLoading ? (
+                  <div style={{ textAlign: "center", padding: "20px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>Cargando lugares...</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "10px", alignItems: "center", width: "100%" }}>
+                    <select
+                      style={{
+                        width: "100%", maxWidth: "400px",
+                        padding: isMobile ? "10px 12px" : "14px 18px",
+                        border: isMobile ? "2px solid #000" : "3px solid #000",
+                        borderRadius: "0px",
+                        fontSize: isMobile ? "14px" : "16px",
+                        fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                        fontWeight: "bold",
+                        background: "#fff",
+                        boxShadow: "3px 3px 0 #000",
+                        boxSizing: "border-box",
+                        cursor: "pointer"
+                      }}
+                      value={eventData.lugarOption || ""}
+                      onChange={e => { if (e.target.value) handleOptionClick("lugar", e.target.value); }}
+                    >
+                      <option value="" disabled>Elegir lugar...</option>
+                      {["bar", "cafetería", "biblioteca"].map(cat => {
+                        const grupo = lugares.filter(l => l.categoria === cat);
+                        if (!grupo.length) return null;
+                        const label = cat === "bar" ? "Bares" : cat === "cafetería" ? "Cafeterías" : "Bibliotecas";
+                        return (
+                          <optgroup key={cat} label={label}>
+                            {grupo.map(l => (
+                              <option key={l._id} value={l.nombre}>{l.nombre}{l.comuna ? ` — ${l.comuna}` : ""}</option>
+                            ))}
+                          </optgroup>
+                        );
+                      })}
+                    </select>
+                    {lugares.length === 0 && (
+                      <div style={{ color: "#999", fontSize: "13px", fontFamily: '"Patrick Hand", system-ui, cursive' }}>No hay lugares registrados</div>
+                    )}
                   </div>
                 )
               ) : (

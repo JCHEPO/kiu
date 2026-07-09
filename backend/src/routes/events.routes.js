@@ -6,11 +6,14 @@ import Notification from "../models/Notification.js";
 
 const router = express.Router();
 
-// GET /api/events - Lista de eventos (público, con filtro opcional por género)
+// GET /api/events - Lista de eventos futuros, paginada (público, con filtro opcional por género)
+// Query: ?page=1&limit=50&genero=Hombre — responde { events, total, page, pages }
 router.get("/", async (req, res) => {
   try {
     const { genero } = req.query;
-    let filter = {};
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 50));
+    let filter = { date: { $gte: new Date() } };
 
     if (genero) {
       if (genero === "Hombre") {
@@ -32,32 +35,92 @@ router.get("/", async (req, res) => {
       }
     }
 
-    const events = await Event.find(filter).populate("creator", "email nombre apellido");
-    res.json(events);
+    const [events, total] = await Promise.all([
+      Event.find(filter)
+        .populate("creator", "email nombre apellido")
+        .sort({ date: 1 })
+        .skip((page - 1) * limit)
+        .limit(limit),
+      Event.countDocuments(filter)
+    ]);
+    res.json({ events, total, page, pages: Math.ceil(total / limit) });
   } catch (err) {
     res.status(500).json({ error: "Error al obtener eventos" });
   }
 });
 
+// GET /api/events/mine - Eventos donde soy creador o participante (autenticado)
+// IMPORTANTE: debe declararse antes de GET /:id para que "mine" no se interprete como id
+router.get("/mine", authenticate, async (req, res) => {
+  try {
+    const events = await Event.find({
+      $or: [{ creator: req.user.id }, { participants: req.user.id }]
+    })
+      .populate("creator", "email nombre apellido")
+      .sort({ date: 1 });
+    res.json(events);
+  } catch (err) {
+    console.error("Error al obtener mis eventos:", err);
+    res.status(500).json({ error: "Error al obtener tus eventos" });
+  }
+});
+
 // POST /api/events - Crear evento (todos los usuarios logueados)
 router.post("/", authenticate, async (req, res) => {
-  const { title, date, description, location, maxParticipants, category, subcategory, cost, restriccionGenero, comuna } = req.body;
+  const { title, date, description, location, minParticipants, maxParticipants, category, subcategory, cost, restriccionGenero, comuna, items } = req.body;
   try {
+    // --- Validación server-side ---
+    if (typeof title !== "string" || !title.trim())
+      return res.status(400).json({ error: "El título es obligatorio" });
+    if (title.trim().length > 100)
+      return res.status(400).json({ error: "El título es demasiado largo (máx 100 caracteres)" });
+    if (typeof location !== "string" || !location.trim())
+      return res.status(400).json({ error: "El lugar es obligatorio" });
+
+    const dateObj = new Date(date);
+    if (!date || isNaN(dateObj.getTime()))
+      return res.status(400).json({ error: "Fecha inválida" });
+    if (dateObj.getTime() < Date.now() - 15 * 60 * 1000)
+      return res.status(400).json({ error: "La fecha del evento ya pasó" });
+
+    const max = parseInt(maxParticipants);
+    if (!Number.isInteger(max) || max < 2 || max > 1000)
+      return res.status(400).json({ error: "El máximo de participantes debe ser un número entre 2 y 1000" });
+
+    let min;
+    if (minParticipants !== undefined && minParticipants !== null && minParticipants !== "") {
+      min = parseInt(minParticipants);
+      if (!Number.isInteger(min) || min < 1)
+        return res.status(400).json({ error: "El mínimo de participantes es inválido" });
+      if (min > max)
+        return res.status(400).json({ error: "El mínimo de participantes no puede ser mayor que el máximo" });
+    }
+
+    const costNum = Number(cost) || 0;
+    if (costNum < 0)
+      return res.status(400).json({ error: "El costo no puede ser negativo" });
+    if (restriccionGenero && !["Solo hombres", "Solo mujeres", "Mixto"].includes(restriccionGenero))
+      return res.status(400).json({ error: "Restricción de género inválida" });
+
+    const initialItems = Array.isArray(items)
+      ? items.filter(i => i && typeof i.name === "string" && i.name.trim()).map(i => ({ name: i.name.trim().slice(0, 100) }))
+      : [];
     const event = await Event.create({
-      title,
-      date,
-      description,
-      location,
-      maxParticipants,
+      title: title.trim(),
+      date: dateObj,
+      description: typeof description === "string" ? description.slice(0, 500) : "",
+      location: location.trim(),
+      minParticipants: min,
+      maxParticipants: max,
       category,
       subcategory,
-      cost: cost || 0,
+      cost: costNum,
       comuna: comuna || "",
       restriccionGenero: restriccionGenero || "Mixto",
       creator: req.user.id,
       participants: [req.user.id],
       messages: [],
-      items: []
+      items: initialItems
     });
     res.json(event);
   } catch (err) {
@@ -66,8 +129,8 @@ router.post("/", authenticate, async (req, res) => {
   }
 });
 
-// GET /api/events/:id - Obtener evento específico con detalles
-router.get("/:id", authenticate, async (req, res) => {
+// GET /api/events/:id - Obtener evento específico con detalles (público)
+router.get("/:id", async (req, res) => {
   try {
     const event = await Event.findById(req.params.id)
       .populate("creator", "email nombre apellido")
@@ -184,6 +247,10 @@ router.post("/:id/leave", authenticate, async (req, res) => {
 router.post("/:id/messages", authenticate, async (req, res) => {
   try {
     const { text } = req.body;
+    if (typeof text !== "string" || !text.trim())
+      return res.status(400).json({ error: "El mensaje no puede estar vacío" });
+    if (text.length > 500)
+      return res.status(400).json({ error: "El mensaje es demasiado largo (máx 500 caracteres)" });
     const event = await Event.findById(req.params.id);
 
     if (!event) {
@@ -192,7 +259,7 @@ router.post("/:id/messages", authenticate, async (req, res) => {
 
     event.messages.push({
       sender: req.user.id,
-      text,
+      text: text.trim(),
       createdAt: new Date()
     });
 
@@ -216,6 +283,10 @@ router.post("/:id/messages", authenticate, async (req, res) => {
 router.post("/:id/items", authenticate, async (req, res) => {
   try {
     const { name } = req.body;
+    if (typeof name !== "string" || !name.trim())
+      return res.status(400).json({ error: "El nombre del item no puede estar vacío" });
+    if (name.length > 100)
+      return res.status(400).json({ error: "El nombre del item es demasiado largo" });
     const event = await Event.findById(req.params.id);
 
     if (!event) {
@@ -229,7 +300,7 @@ router.post("/:id/items", authenticate, async (req, res) => {
       return res.status(403).json({ error: "Debes ser participante para agregar items" });
     }
 
-    event.items.push({ name, claimedBy: null });
+    event.items.push({ name: name.trim(), claimedBy: null });
     await event.save();
 
     const updatedEvent = await Event.findById(req.params.id)
@@ -355,6 +426,10 @@ router.put("/:id", authenticate, async (req, res) => {
 router.post("/:id/manual-participants", authenticate, async (req, res) => {
   try {
     const { name } = req.body;
+    if (typeof name !== "string" || !name.trim())
+      return res.status(400).json({ error: "El nombre no puede estar vacío" });
+    if (name.length > 60)
+      return res.status(400).json({ error: "El nombre es demasiado largo" });
     const event = await Event.findById(req.params.id);
 
     if (!event) {
@@ -370,7 +445,7 @@ router.post("/:id/manual-participants", authenticate, async (req, res) => {
       return res.status(400).json({ error: "Evento lleno" });
     }
 
-    event.manualParticipants.push(name);
+    event.manualParticipants.push(name.trim());
     await event.save();
 
     const updatedEvent = await Event.findById(req.params.id)

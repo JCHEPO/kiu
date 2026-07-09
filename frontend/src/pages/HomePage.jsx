@@ -13,17 +13,7 @@ let fbInitialized = false;
 function loadFacebookSdk() {
   if (fbSdkLoaded || typeof window === "undefined") return;
   fbSdkLoaded = true;
-/*************  ✨ Windsurf Command ⭐  *************/
-/**
- * Initializes Facebook SDK with the given app ID, enabling
- * cookies and disabling xfbml. The version of the SDK is
- * set to v19.0.
- * @param {string} appId - The Facebook app ID.
- * @param {boolean} cookie - Whether to enable cookies.
- * @param {boolean} xfbml - Whether to enable xfbml.
- * @param {string} version - The version of the SDK.
- */
-/*******  c81d0ba4-b3b6-40ac-ba50-0586251df85e  *******/  window.fbAsyncInit = function () {
+  window.fbAsyncInit = function () {
     window.FB.init({ appId: FB_APP_ID, cookie: true, xfbml: false, version: "v19.0" });
     fbInitialized = true;
   };
@@ -42,6 +32,7 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
   const [form, setForm] = useState({});
   const [error, setError] = useState("");
   const [oauthData, setOauthData] = useState(null); // Store OAuth response for nickname flow
+  const [forgotSent, setForgotSent] = useState(false);
 
   const genderOptions = [
     { label: "Femenino", value: "Mujer" },
@@ -53,6 +44,25 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
     setView(newView);
     setForm({});
     setError("");
+    setForgotSent(false);
+  };
+
+  const handleForgotPassword = async () => {
+    setError("");
+    if (!form.email) {
+      setError("Ingresa tu email");
+      return;
+    }
+    try {
+      await fetch(`${API_URL}/api/auth/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: form.email })
+      });
+      setForgotSent(true);
+    } catch {
+      setError("Error de conexión");
+    }
   };
 
   // Google OAuth
@@ -147,11 +157,18 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
       setError("Ingresa tu fecha de nacimiento");
       return;
     }
+    // Convert dd/mm/yyyy to ISO date string
+    const [day, month, year] = form.fechaNacimiento.split("/");
+    if (!day || !month || !year || isNaN(new Date(`${year}-${month}-${day}`))) {
+      setError("Fecha inválida. Usa el formato DD/MM/AAAA");
+      return;
+    }
+    const isoDate = `${year}-${month.padStart(2,"0")}-${day.padStart(2,"0")}`;
     try {
       const res = await fetch(`${API_URL}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form)
+        body: JSON.stringify({ ...form, fechaNacimiento: isoDate })
       });
       const data = await res.json();
       if (data.error) {
@@ -353,6 +370,14 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
               value={form.password || ""}
               onChange={e => setForm({ ...form, password: e.target.value })}
             />
+            <div style={{ textAlign: "right", marginBottom: "12px", marginTop: "-6px" }}>
+              <button
+                style={{ ...modalStyles.link, fontSize: "13px" }}
+                onClick={() => switchView("forgotPassword")}
+              >
+                Olvidaste tu contraseña?
+              </button>
+            </div>
             <button style={modalStyles.button} onClick={handleLogin}>
               Iniciar Sesion
             </button>
@@ -455,9 +480,16 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
               </div>
               <input
                 style={modalStyles.input}
-                type="date"
+                type="text"
+                placeholder="DD/MM/AAAA"
+                maxLength={10}
                 value={form.fechaNacimiento || ""}
-                onChange={e => setForm({ ...form, fechaNacimiento: e.target.value })}
+                onChange={e => {
+                  let val = e.target.value.replace(/[^\d/]/g, "");
+                  if (val.length === 2 && form.fechaNacimiento?.length === 1) val += "/";
+                  if (val.length === 5 && form.fechaNacimiento?.length === 4) val += "/";
+                  setForm({ ...form, fechaNacimiento: val });
+                }}
               />
             </div>
 
@@ -491,6 +523,50 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
               Ya tienes cuenta?{" "}
               <button style={modalStyles.link} onClick={() => switchView("login")}>
                 Iniciar sesion
+              </button>
+            </div>
+          </>
+        ) : view === "forgotPassword" ? (
+          <>
+            <div style={modalStyles.title}>Recuperar contraseña</div>
+            <div style={modalStyles.subtitle}>
+              Ingresa tu email y te enviaremos instrucciones
+            </div>
+
+            {error && <div style={modalStyles.error}>{error}</div>}
+
+            {forgotSent ? (
+              <div style={{
+                textAlign: "center",
+                padding: "20px",
+                color: "#2e7d32",
+                fontSize: "15px",
+                fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                fontWeight: "bold",
+                background: "#e8f5e9",
+                borderRadius: "8px",
+                marginBottom: "16px"
+              }}>
+                ✓ Si el email existe, recibirás instrucciones para resetear tu contraseña
+              </div>
+            ) : (
+              <>
+                <input
+                  style={modalStyles.input}
+                  placeholder="Email"
+                  type="email"
+                  value={form.email || ""}
+                  onChange={e => setForm({ ...form, email: e.target.value })}
+                />
+                <button style={modalStyles.button} onClick={handleForgotPassword}>
+                  Enviar instrucciones
+                </button>
+              </>
+            )}
+
+            <div style={modalStyles.switchLink}>
+              <button style={modalStyles.link} onClick={() => switchView("login")}>
+                ← Volver al login
               </button>
             </div>
           </>
@@ -725,6 +801,14 @@ function EventPostItCard({ event, isLoggedIn, sizeFactor: externalScale }) {
   );
 }
 
+function getDefaultGenderFilter(user) {
+  const genero = user?.genero;
+  if (genero === "Hombre") return "Solo hombres";
+  if (genero === "Mujer") return "Solo mujeres";
+  if (genero === "LGTBQ+") return "Mixto";
+  return null;
+}
+
 export default function HomePage() {
   const { auth, logout, fetchWithAuth } = useContext(AuthContext);
   const [events, setEvents] = useState([]);
@@ -736,6 +820,7 @@ export default function HomePage() {
   const [filterCuando, setFilterCuando] = useState(null);
   const [filterTipo, setFilterTipo] = useState(null);
   const [filterPersonas, setFilterPersonas] = useState(null);
+  const [filterGenero, setFilterGenero] = useState(() => getDefaultGenderFilter(auth?.user));
   const [openFilter, setOpenFilter] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
   const [selectedRegion, setSelectedRegion] = useState("Gran Concepción");
@@ -782,6 +867,10 @@ export default function HomePage() {
 
   const hasActiveFilters = filterComuna || filterCuando || filterTipo || filterPersonas;
 
+  // Maps compartidos para los filtros combinables
+  const filterStateMap = { comuna: filterComuna, cuando: filterCuando, tipo: filterTipo, personas: filterPersonas };
+  const filterSetterMap = { comuna: setFilterComuna, cuando: setFilterCuando, tipo: setFilterTipo, personas: setFilterPersonas };
+
   const regionOptions = ["Gran Concepción", "Chillán", "Región Metropolitana"];
 
   // Mobile detection
@@ -807,9 +896,9 @@ export default function HomePage() {
     };
     fetchNotifications();
 
-    // Real-time notifications via socket
-    const socket = io(API_URL);
-    socket.emit("join-user", auth.user.id);
+    // Real-time notifications via socket (el JWT identifica al usuario en el handshake)
+    const socket = io(API_URL, { auth: { token: auth.token } });
+    socket.emit("join-user");
     socket.on("new-notification", (notification) => {
       setNotifications(prev => [notification, ...prev]);
     });
@@ -858,26 +947,41 @@ export default function HomePage() {
     if (filterComuna && !ev.comuna?.toLowerCase().includes(filterComuna.toLowerCase())) return false;
 
     // Filter by cuando (time range)
-    if (filterCuando) {
-      const eventDate = new Date(ev.date);
-      const now = new Date();
-      if (filterCuando === "Próximas 3h") {
-        if (eventDate - now > 3 * 60 * 60 * 1000 || eventDate < now) return false;
-      } else if (filterCuando === "Hoy") {
-        if (eventDate.toDateString() !== now.toDateString()) return false;
-      } else if (filterCuando === "Mañana") {
-        const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
-        if (eventDate.toDateString() !== tomorrow.toDateString()) return false;
-      } else if (filterCuando === "Este finde") {
-        const dayOfWeek = now.getDay();
-        const friday = new Date(now);
-        friday.setDate(now.getDate() + ((5 - dayOfWeek + 7) % 7));
-        friday.setHours(0, 0, 0, 0);
-        const monday = new Date(friday);
-        monday.setDate(friday.getDate() + 3);
-        if (eventDate < friday || eventDate >= monday) return false;
+      if (filterCuando) {
+        if (!ev.date) return false;
+        const eventDate = new Date(ev.date);
+        const now = new Date();
+
+        if (filterCuando === "Próximas 3h") {
+          const diffMs = eventDate.getTime() - now.getTime();
+          const threeHoursMs = 3 * 60 * 60 * 1000;
+          if (diffMs < 0 || diffMs > threeHoursMs) return false;
+        } else if (filterCuando === "Hoy") {
+          if (eventDate.toDateString() !== now.toDateString()) return false;
+        } else if (filterCuando === "Mañana") {
+          const tomorrow = new Date(now);
+          tomorrow.setDate(now.getDate() + 1);
+          if (eventDate.toDateString() !== tomorrow.toDateString()) return false;
+        } else if (filterCuando === "Este finde") {
+          const dayOfWeek = now.getDay(); // 0=Dom, 1=Lun ... 5=Vie, 6=Sab
+          const weekendStart = new Date(now);
+          const weekendEnd = new Date(now);
+          if (dayOfWeek === 5 || dayOfWeek === 6 || dayOfWeek === 0) {
+            // Ya estamos en el finde: mostrar desde ahora hasta el domingo al final del dia
+            const daysToSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+            weekendEnd.setDate(now.getDate() + daysToSunday);
+            weekendEnd.setHours(23, 59, 59, 999);
+          } else {
+            // Semana: mostrar el proximo finde completo (Vie-Dom)
+            const daysToFriday = 5 - dayOfWeek;
+            weekendStart.setDate(now.getDate() + daysToFriday);
+            weekendStart.setHours(0, 0, 0, 0);
+            weekendEnd.setDate(now.getDate() + daysToFriday + 2);
+            weekendEnd.setHours(23, 59, 59, 999);
+          }
+          if (eventDate < weekendStart || eventDate > weekendEnd) return false;
+        }
       }
-    }
 
     // Filter by tipo
     if (filterTipo) {
@@ -894,6 +998,9 @@ export default function HomePage() {
       if (filterPersonas === "Hasta 14" && ev.maxParticipants > 14) return false;
       if (filterPersonas === "Hasta 22" && ev.maxParticipants > 22) return false;
     }
+
+    // Filter by gender restriction
+    if (filterGenero && (ev.restriccionGenero || "Mixto") !== filterGenero) return false;
 
     return true;
   });
@@ -919,18 +1026,17 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
+    setFilterGenero(getDefaultGenderFilter(auth?.user));
     fetchEvents();
   }, [auth]);
 
   const fetchEvents = async () => {
     try {
-      let url = `${API_URL}/api/events`;
-      if (auth?.user?.genero) {
-        url += `?genero=${encodeURIComponent(auth.user.genero)}`;
-      }
+      const url = `${API_URL}/api/events`;
       const res = await fetch(url);
       const data = await res.json();
-      setEvents(data);
+      // El backend ahora responde { events, total, page, pages }
+      setEvents(Array.isArray(data) ? data : (data.events || []));
     } catch (error) {
       console.error("Error fetching events:", error);
     } finally {
@@ -1358,12 +1464,6 @@ export default function HomePage() {
                   Mis eventos
                 </button>
                 <button
-                  style={styles.dropdownItem}
-                  onClick={() => { setShowUserMenu(false); navigate("/conversations"); }}
-                >
-                  Mis conversaciones
-                </button>
-                <button
                   style={styles.dropdownItemLast}
                   onClick={() => { setShowUserMenu(false); logout(); }}
                 >
@@ -1435,36 +1535,26 @@ export default function HomePage() {
           })()}
 
           <div style={styles.buttonContainer}>
+            <button
+              style={styles.btnPrimary}
+              onClick={() => { setShowFilters(true); document.getElementById("events-section")?.scrollIntoView({ behavior: "smooth" }); }}
+            >
+              Explorar Eventos
+            </button>
             {isLoggedIn ? (
-              <>
-                <button
-                  style={styles.btnPrimary}
-                  onClick={() => { setShowFilters(true); document.getElementById("events-section")?.scrollIntoView({ behavior: "smooth" }); }}
-                >
-                  Explorar Eventos
-                </button>
-                <button
-                  style={styles.btnSecondary}
-                  onClick={() => navigate("/create-event")}
-                >
-                  Crear Evento
-                </button>
-              </>
+              <button
+                style={styles.btnSecondary}
+                onClick={() => navigate("/create-event")}
+              >
+                Crear Evento
+              </button>
             ) : (
-              <>
-                <button
-                  style={styles.btnPrimary}
-                  onClick={() => { setShowFilters(true); document.getElementById("events-section")?.scrollIntoView({ behavior: "smooth" }); }}
-                >
-                  Explorar Eventos
-                </button>
-                <button
-                  style={styles.btnSecondary}
-                  onClick={() => setShowLoginModal(true)}
-                >
-                  Iniciar Sesion
-                </button>
-              </>
+              <button
+                style={styles.btnSecondary}
+                onClick={() => setShowLoginModal(true)}
+              >
+                Iniciar Sesion
+              </button>
             )}
           </div>
         </div>
@@ -1473,19 +1563,93 @@ export default function HomePage() {
         <div style={styles.eventsSection} id="events-section">
           {/* Combinable filters */}
           {showFilters && <div style={styles.filterSection}>
+            {/* Gender chips - always visible at top */}
+            <div style={{
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              gap: "8px",
+              marginBottom: "16px",
+              flexWrap: "wrap"
+            }}>
+              <span style={{
+                fontSize: isMobile ? "12px" : "13px",
+                fontWeight: 800,
+                fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
+                color: "#666",
+                marginRight: "2px"
+              }}>Para:</span>
+              {[
+                { label: "Hombres", value: "Solo hombres" },
+                { label: "Mujeres", value: "Solo mujeres" },
+                { label: "Mixto", value: "Mixto" }
+              ].map(opt => {
+                const isSelected = filterGenero === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    style={{
+                      padding: isMobile ? "6px 14px" : "7px 16px",
+                      borderRadius: "20px",
+                      border: isSelected ? "2px solid #000" : "2px solid #ccc",
+                      background: isSelected ? "#000" : "#fff",
+                      color: isSelected ? "#fff" : "#888",
+                      fontSize: isMobile ? "13px" : "14px",
+                      fontWeight: 700,
+                      fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
+                      cursor: "pointer",
+                      transition: "all 0.15s ease"
+                    }}
+                    onClick={() => setFilterGenero(prev => prev === opt.value ? null : opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+
             {/* Filter title buttons in a row */}
             <div style={styles.filterTitlesRow}>
               {Object.entries(filterCategories).map(([key, cat]) => {
-                const stateMap = { comuna: filterComuna, cuando: filterCuando, tipo: filterTipo, personas: filterPersonas };
-                const current = stateMap[key];
+                const current = filterStateMap[key];
+                const setter = filterSetterMap[key];
                 return (
-                  <button
-                    key={key}
-                    style={styles.filterTitle(openFilter === key, !!current)}
-                    onClick={() => setOpenFilter(openFilter === key ? null : key)}
-                  >
-                    {cat.label}{current ? `: ${current}` : ""}
-                  </button>
+                  <div key={key} style={{ display: "inline-flex", alignItems: "stretch" }}>
+                    <button
+                      style={{
+                        ...styles.filterTitle(openFilter === key, !!current),
+                        borderRadius: current ? "25px 0 0 25px" : "25px",
+                      }}
+                      onClick={() => setOpenFilter(openFilter === key ? null : key)}
+                    >
+                      {cat.label}{current ? `: ${current}` : ""}
+                    </button>
+                    {current && (
+                      <button
+                        style={{
+                          padding: isMobile ? "10px 11px" : "12px 13px",
+                          background: "#000",
+                          color: "#fff",
+                          border: "2px solid #000",
+                          borderLeft: "1px solid rgba(255,255,255,0.25)",
+                          borderRadius: "0 25px 25px 0",
+                          cursor: "pointer",
+                          fontSize: "16px",
+                          fontWeight: 900,
+                          lineHeight: 1,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center"
+                        }}
+                        onClick={() => {
+                          setter(null);
+                          if (openFilter === key) setOpenFilter(null);
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -1493,10 +1657,8 @@ export default function HomePage() {
             {/* Expanded options for the active filter */}
             {openFilter && (() => {
               const cat = filterCategories[openFilter];
-              const stateMap = { comuna: filterComuna, cuando: filterCuando, tipo: filterTipo, personas: filterPersonas };
-              const setterMap = { comuna: setFilterComuna, cuando: setFilterCuando, tipo: setFilterTipo, personas: setFilterPersonas };
-              const current = stateMap[openFilter];
-              const setter = setterMap[openFilter];
+              const current = filterStateMap[openFilter];
+              const setter = filterSetterMap[openFilter];
               return (
                 <div style={styles.filterOptionsRow}>
                   {cat.options.map((opt) => (
@@ -1518,7 +1680,7 @@ export default function HomePage() {
               <div style={{ textAlign: "center", marginTop: "4px" }}>
                 <button
                   style={{ background: "none", border: "none", cursor: "pointer", fontSize: "13px", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', textDecoration: "underline" }}
-                  onClick={() => { setFilterComuna(null); setFilterCuando(null); setFilterTipo(null); setFilterPersonas(null); setOpenFilter(null); }}
+                  onClick={() => { setFilterComuna(null); setFilterCuando(null); setFilterTipo(null); setFilterPersonas(null); setFilterGenero(getDefaultGenderFilter(auth?.user)); setOpenFilter(null); }}
                 >
                   Limpiar filtros
                 </button>

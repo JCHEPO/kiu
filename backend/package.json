@@ -1,6 +1,9 @@
 {
   "name": "petu-backend",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node src/server.js"
@@ -8,9 +11,13 @@
   "dependencies": {
     "bcrypt": "^5.1.0",
     "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
     "express": "^4.19.2",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.0.0",
+    "nodemailer": "^9.0.3",
     "socket.io": "^4.8.3"
   }
 }

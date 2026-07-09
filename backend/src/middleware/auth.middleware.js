@@ -14,6 +14,10 @@ export const authenticate = async (req, res, next) => {
 	const token = parts[1];
 	try {
 		const payload = jwt.verify(token, JWT_SECRET);
+		// Verificar que el usuario siga existiendo y no esté baneado (corta sesiones activas)
+		const user = await User.findById(payload.id).select("activo");
+		if (!user) return res.status(401).json({ error: "Usuario no encontrado" });
+		if (user.activo === false) return res.status(403).json({ error: "Cuenta suspendida" });
 		req.user = payload; // payload contiene { id }
 		next();
 	} catch (err) {

@@ -10,9 +10,14 @@ const UserSchema = new mongoose.Schema({
   genero: { type: String, enum: ["Hombre", "Mujer", "LGTBQ+"] },
   fechaNacimiento: { type: Date },
   fechaRegistro: { type: Date, default: Date.now },
+  telefono: { type: String },
+  verificado: { type: Boolean, default: false },
+  solicitaVerificacion: { type: Boolean, default: false },
   rol: { type: String, enum: ["user", "admin"], default: "user" },
   strikes: { type: Number, default: 0 },
-  activo: { type: Boolean, default: true }
+  activo: { type: Boolean, default: true },
+  resetToken: { type: String },
+  resetTokenExpiry: { type: Date }
 }, {
   toJSON: { virtuals: true },
   toObject: { virtuals: true }

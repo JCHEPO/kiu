@@ -19,6 +19,10 @@ export default function EventDetailPage() {
   // Edit inline states
   const [editingLocation, setEditingLocation] = useState(false);
   const [editLocation, setEditLocation] = useState("");
+  const [canchasForEdit, setCanchasForEdit] = useState([]);
+  const [loadingCanchas, setLoadingCanchas] = useState(false);
+  const [canchaSearch, setCanchaSearch] = useState("");
+  const [locationEditMode, setLocationEditMode] = useState("picker");
   const [editingDate, setEditingDate] = useState(false);
   const [editDate, setEditDate] = useState("");
   const [editTime, setEditTime] = useState("");
@@ -28,6 +32,11 @@ export default function EventDetailPage() {
 
   // Location popup after joining
   const [showLocationPopup, setShowLocationPopup] = useState(false);
+
+  // Public profile card (creator or participant)
+  const [showProfileCard, setShowProfileCard] = useState(false);
+  const [profileData, setProfileData] = useState(null);
+  const [loadingProfile, setLoadingProfile] = useState(false);
 
   useEffect(() => {
     fetchEventDetails();
@@ -182,9 +191,32 @@ export default function EventDetailPage() {
   };
 
   // Edición inline - Location
-  const handleEditLocation = () => {
+  const handleEditLocation = async () => {
     setEditLocation(event.location || "");
+    setCanchaSearch("");
+    setLocationEditMode("picker");
     setEditingLocation(true);
+    setLoadingCanchas(true);
+    try {
+      const isGratuita = !event.cost || Number(event.cost) === 0;
+      const res = await fetch(`${API_URL}/api/canchas?gratuita=${isGratuita}`);
+      const data = await res.json();
+      setCanchasForEdit(Array.isArray(data) ? data : []);
+    } catch { setCanchasForEdit([]); }
+    finally { setLoadingCanchas(false); }
+  };
+
+  const selectCancha = async (cancha) => {
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/events/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ location: cancha.nombre })
+      });
+      if (!res.ok) throw new Error();
+      setEditingLocation(false);
+      await fetchEventDetails();
+    } catch { alert("Error al guardar lugar"); }
   };
 
   const handleSaveLocation = async () => {
@@ -241,6 +273,21 @@ export default function EventDetailPage() {
     } catch (error) {
       console.error("Error editing date:", error);
       alert("Error al editar fecha/hora");
+    }
+  };
+
+  const handleViewProfile = async (userId) => {
+    if (!userId) return;
+    setShowProfileCard(true);
+    setProfileData(null);
+    setLoadingProfile(true);
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/auth/users/${userId}/public`);
+      if (res.ok) setProfileData(await res.json());
+    } catch (err) {
+      console.error("Error loading profile:", err);
+    } finally {
+      setLoadingProfile(false);
     }
   };
 
@@ -313,7 +360,8 @@ export default function EventDetailPage() {
     );
   }
 
-  const isCreator = event.creator._id === auth?.user?.id || event.creator === auth?.user?.id;
+  const creatorId = (event.creator?._id ?? event.creator)?.toString();
+  const isCreator = !!creatorId && creatorId === auth?.user?.id?.toString();
   const isParticipant = event.participants?.some(p =>
     (p._id === auth?.user?.id) || (p === auth?.user?.id)
   );
@@ -653,7 +701,27 @@ export default function EventDetailPage() {
 
         {/* Event Card */}
         <div style={styles.eventCard}>
-          <div style={styles.rating}>{currentParticipants}/{event.maxParticipants}</div>
+          <div style={styles.rating}>
+            {currentParticipants}/{event.maxParticipants}
+            {event.minParticipants > 0 && (
+              <div style={{
+                fontSize: isMobile ? "10px" : "13px",
+                fontWeight: 800,
+                fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                background: currentParticipants >= event.minParticipants ? "#d4f4dd" : "rgba(255,255,255,0.8)",
+                border: "2px solid #333",
+                borderRadius: "12px",
+                padding: "2px 8px",
+                marginTop: "4px",
+                textAlign: "center",
+                whiteSpace: "nowrap"
+              }}>
+                {currentParticipants >= event.minParticipants
+                  ? "✓ Confirmado"
+                  : `Faltan ${event.minParticipants - currentParticipants} para confirmar`}
+              </div>
+            )}
+          </div>
 
           <div style={styles.titleContainer}>
             {titleParts.line1 && <div style={styles.titleLine1}>{titleParts.line1}</div>}
@@ -664,21 +732,82 @@ export default function EventDetailPage() {
           <div style={styles.eventInfo}>
             <div>
               {editingLocation ? (
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <input
-                    type="text"
-                    value={editLocation}
-                    onChange={(e) => setEditLocation(e.target.value)}
-                    style={{ border: "2px solid #000", padding: "4px 8px", fontSize: isMobile ? "13px" : "16px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', borderRadius: "4px", width: "160px" }}
-                    autoFocus
-                    onKeyDown={(e) => { if (e.key === "Enter") handleSaveLocation(); if (e.key === "Escape") setEditingLocation(false); }}
-                  />
-                  <span style={{ cursor: "pointer", fontSize: "16px" }} onClick={handleSaveLocation}>&#10003;</span>
-                  <span style={{ cursor: "pointer", fontSize: "16px" }} onClick={() => setEditingLocation(false)}>&#10005;</span>
+                <div style={{ background: "#fff", border: "3px solid #000", borderRadius: "12px", padding: "14px", boxShadow: "4px 4px 0 #000", width: "min(320px, 90vw)", zIndex: 20 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                    <span style={{ fontSize: "13px", fontWeight: 900, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+                      {!event.cost || Number(event.cost) === 0 ? "Canchas gratuitas" : "Canchas pagadas"}
+                    </span>
+                    <span style={{ cursor: "pointer", fontSize: "16px", lineHeight: 1 }} onClick={() => setEditingLocation(false)}>✕</span>
+                  </div>
+
+                  {locationEditMode === "picker" ? (
+                    <>
+                      <input
+                        autoFocus
+                        placeholder="Buscar cancha..."
+                        value={canchaSearch}
+                        onChange={e => setCanchaSearch(e.target.value)}
+                        style={{ width: "100%", padding: "7px 10px", border: "2px solid #ccc", borderRadius: "8px", fontSize: "13px", fontFamily: '"Patrick Hand", system-ui, cursive', boxSizing: "border-box", marginBottom: "8px" }}
+                      />
+                      <div style={{ maxHeight: "200px", overflowY: "auto", border: "2px solid #eee", borderRadius: "8px" }}>
+                        {loadingCanchas ? (
+                          <div style={{ padding: "12px", textAlign: "center", fontSize: "13px", color: "#888", fontFamily: '"Patrick Hand", system-ui, cursive' }}>Cargando...</div>
+                        ) : canchasForEdit.filter(c => !canchaSearch || c.nombre?.toLowerCase().includes(canchaSearch.toLowerCase()) || c.direccion?.toLowerCase().includes(canchaSearch.toLowerCase())).length === 0 ? (
+                          <div style={{ padding: "12px", textAlign: "center", fontSize: "13px", color: "#888", fontFamily: '"Patrick Hand", system-ui, cursive' }}>Sin resultados</div>
+                        ) : canchasForEdit
+                            .filter(c => !canchaSearch || c.nombre?.toLowerCase().includes(canchaSearch.toLowerCase()) || c.direccion?.toLowerCase().includes(canchaSearch.toLowerCase()))
+                            .map(c => (
+                              <div
+                                key={c._id}
+                                onClick={() => selectCancha(c)}
+                                style={{ padding: "9px 12px", cursor: "pointer", borderBottom: "1px solid #f0f0f0", transition: "background 0.1s" }}
+                                onMouseEnter={e => e.currentTarget.style.background = "#f5f5f5"}
+                                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                              >
+                                <div style={{ fontSize: "13px", fontWeight: 700, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>{c.nombre}</div>
+                                <div style={{ fontSize: "11px", color: "#888", fontFamily: '"Patrick Hand", system-ui, cursive' }}>{c.comuna}{c.direccion ? ` · ${c.direccion}` : ""}</div>
+                              </div>
+                            ))
+                        }
+                      </div>
+                      <button
+                        onClick={() => setLocationEditMode("manual")}
+                        style={{ marginTop: "8px", background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: "#888", fontFamily: '"Patrick Hand", system-ui, cursive', textDecoration: "underline", padding: 0 }}
+                      >
+                        Escribir manualmente
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        autoFocus
+                        type="text"
+                        value={editLocation}
+                        onChange={e => setEditLocation(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") handleSaveLocation(); if (e.key === "Escape") setLocationEditMode("picker"); }}
+                        style={{ width: "100%", padding: "7px 10px", border: "2px solid #333", borderRadius: "8px", fontSize: "14px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', boxSizing: "border-box", marginBottom: "8px" }}
+                        placeholder="Nombre del lugar..."
+                      />
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <button onClick={handleSaveLocation} style={{ flex: 1, padding: "7px", background: "#000", color: "#fff", border: "none", borderRadius: "8px", fontSize: "13px", fontWeight: 700, cursor: "pointer", fontFamily: '"Patrick Hand", system-ui, cursive' }}>Guardar</button>
+                        <button onClick={() => setLocationEditMode("picker")} style={{ padding: "7px 12px", background: "#fff", border: "2px solid #ccc", borderRadius: "8px", fontSize: "12px", cursor: "pointer", fontFamily: '"Patrick Hand", system-ui, cursive' }}>Ver lista</button>
+                      </div>
+                    </>
+                  )}
                 </div>
               ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                   {event.location}
+                  {event.location && (
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.location)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ fontSize: "13px", color: "#1a73e8", textDecoration: "none", fontWeight: 600, fontFamily: '"Patrick Hand", system-ui, cursive', whiteSpace: "nowrap" }}
+                    >
+                      📍 Ver en Maps
+                    </a>
+                  )}
                   {isCreator && (
                     <span style={{ cursor: "pointer", fontSize: "14px", opacity: 0.7 }} onClick={handleEditLocation} title="Editar lugar">&#9998;</span>
                   )}
@@ -893,6 +1022,24 @@ export default function EventDetailPage() {
                       {event.creator.nombre || event.creator.email?.split("@")[0] || "Organizador"}
                     </div>
                     <span style={styles.creatorTag}>Creador</span>
+                    <button
+                      onClick={() => handleViewProfile(event.creator?._id || event.creator)}
+                      style={{
+                        marginLeft: "auto",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        fontSize: "11px",
+                        fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                        fontWeight: 700,
+                        color: "#555",
+                        padding: "0",
+                        textDecoration: "underline",
+                        whiteSpace: "nowrap"
+                      }}
+                    >
+                      Ver perfil
+                    </button>
                   </div>
                 )}
                 {event.participants?.filter(p => p._id !== event.creator?._id && p._id !== event.creator).map((p) => (
@@ -900,6 +1047,24 @@ export default function EventDetailPage() {
                     <div style={styles.participantName}>
                       {p.nombre || p.email?.split("@")[0] || "Participante"}
                     </div>
+                    <button
+                      onClick={() => handleViewProfile(p._id)}
+                      style={{
+                        marginLeft: "auto",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        fontSize: isMobile ? "11px" : "13px",
+                        fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                        fontWeight: 700,
+                        color: "#555",
+                        padding: "0",
+                        textDecoration: "underline",
+                        whiteSpace: "nowrap"
+                      }}
+                    >
+                      Ver perfil
+                    </button>
                   </div>
                 ))}
                 {event.manualParticipants?.map((name, idx) => (
@@ -1015,6 +1180,24 @@ export default function EventDetailPage() {
                       {event.creator.nombre || event.creator.email?.split("@")[0] || "Organizador"}
                     </div>
                     <span style={styles.creatorTag}>Creador</span>
+                    <button
+                      onClick={() => handleViewProfile(event.creator?._id || event.creator)}
+                      style={{
+                        marginLeft: "auto",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        fontSize: "13px",
+                        fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                        fontWeight: 700,
+                        color: "#555",
+                        padding: "0",
+                        textDecoration: "underline",
+                        whiteSpace: "nowrap"
+                      }}
+                    >
+                      Ver perfil
+                    </button>
                   </div>
                 )}
                 {event.participants?.filter(p => p._id !== event.creator?._id && p._id !== event.creator).map((p) => (
@@ -1022,6 +1205,24 @@ export default function EventDetailPage() {
                     <div style={styles.participantName}>
                       {p.nombre || p.email?.split("@")[0] || "Participante"}
                     </div>
+                    <button
+                      onClick={() => handleViewProfile(p._id)}
+                      style={{
+                        marginLeft: "auto",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        fontSize: isMobile ? "11px" : "13px",
+                        fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                        fontWeight: 700,
+                        color: "#555",
+                        padding: "0",
+                        textDecoration: "underline",
+                        whiteSpace: "nowrap"
+                      }}
+                    >
+                      Ver perfil
+                    </button>
                   </div>
                 ))}
                 {event.manualParticipants?.map((name, idx) => (
@@ -1084,6 +1285,162 @@ export default function EventDetailPage() {
           </>
         )}
       </div>
+
+      {/* Public profile card (creator or participant) */}
+      {showProfileCard && (
+        <div
+          style={{
+            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 9999
+          }}
+          onClick={() => setShowProfileCard(false)}
+        >
+          <div
+            style={{
+              background: "#fff",
+              border: "3px solid #000",
+              borderRadius: "20px",
+              padding: isMobile ? "28px 22px" : "36px 40px",
+              maxWidth: "360px",
+              width: "90%",
+              boxShadow: "6px 6px 0 #000",
+              position: "relative"
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setShowProfileCard(false)}
+              style={{
+                position: "absolute", top: "14px", right: "18px",
+                background: "none", border: "none", cursor: "pointer",
+                fontSize: "20px", color: "#999", lineHeight: 1
+              }}
+            >×</button>
+
+            {loadingProfile ? (
+              <div style={{
+                textAlign: "center", padding: "20px 0",
+                fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
+                fontWeight: 700, fontSize: "16px"
+              }}>Cargando...</div>
+            ) : profileData ? (
+              <>
+                {/* Avatar */}
+                <div style={{
+                  width: "64px", height: "64px",
+                  background: "linear-gradient(135deg, #84FFC9, #AAB2FF)",
+                  borderRadius: "50%",
+                  border: "3px solid #000",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: "28px",
+                  marginBottom: "12px"
+                }}>
+                  {(profileData.nombre || "?")[0].toUpperCase()}
+                </div>
+
+                {/* Name + verified badge */}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                  <div style={{
+                    fontSize: isMobile ? "22px" : "26px",
+                    fontWeight: 900,
+                    fontFamily: '"Bricolage Grotesque", system-ui, sans-serif'
+                  }}>
+                    {profileData.nombre}{profileData.apellido ? ` ${profileData.apellido}` : ""}
+                  </div>
+                  {profileData.verificado && (
+                    <span style={{
+                      background: "#2196F3",
+                      color: "#fff",
+                      borderRadius: "20px",
+                      padding: "2px 10px",
+                      fontSize: "11px",
+                      fontWeight: "bold",
+                      fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
+                      whiteSpace: "nowrap"
+                    }}>
+                      ✓ Verificado
+                    </span>
+                  )}
+                </div>
+
+                <div style={{
+                  fontSize: "13px", color: "#888",
+                  fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                  marginBottom: "20px"
+                }}>
+                  Miembro desde {new Date(profileData.fechaRegistro).toLocaleDateString("es-CL", { month: "long", year: "numeric" })}
+                </div>
+
+                {/* Stats */}
+                <div style={{ display: "flex", gap: "10px", marginBottom: profileData.strikes > 0 ? "16px" : "0" }}>
+                  <div style={{
+                    flex: 1,
+                    background: "#f5f5f5",
+                    border: "2px solid #ddd",
+                    borderRadius: "12px",
+                    padding: "12px 8px",
+                    textAlign: "center"
+                  }}>
+                    <div style={{ fontSize: "26px", fontWeight: 900, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', lineHeight: 1 }}>
+                      {profileData.eventsCreated}
+                    </div>
+                    <div style={{ fontSize: "11px", color: "#666", marginTop: "4px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', fontWeight: 700 }}>
+                      organizados
+                    </div>
+                  </div>
+                  <div style={{
+                    flex: 1,
+                    background: "#f5f5f5",
+                    border: "2px solid #ddd",
+                    borderRadius: "12px",
+                    padding: "12px 8px",
+                    textAlign: "center"
+                  }}>
+                    <div style={{ fontSize: "26px", fontWeight: 900, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', lineHeight: 1 }}>
+                      {profileData.eventsParticipated}
+                    </div>
+                    <div style={{ fontSize: "11px", color: "#666", marginTop: "4px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', fontWeight: 700 }}>
+                      participados
+                    </div>
+                  </div>
+                </div>
+
+                {profileData.strikes > 0 && (
+                  <div style={{
+                    background: "#fff8e1",
+                    border: "2px solid #f0c000",
+                    borderRadius: "10px",
+                    padding: "12px 14px",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "8px",
+                    marginTop: "12px"
+                  }}>
+                    <span style={{ fontSize: "18px", flexShrink: 0 }}>⚠️</span>
+                    <span style={{
+                      fontSize: "13px",
+                      fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
+                      fontWeight: 700,
+                      color: "#7a5800"
+                    }}>
+                      Este usuario tiene {profileData.strikes} reporte{profileData.strikes !== 1 ? "s" : ""} de la comunidad
+                    </span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div style={{
+                textAlign: "center", padding: "20px 0", color: "#999",
+                fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive'
+              }}>
+                No se pudo cargar el perfil
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Location popup after joining */}
       {showLocationPopup && event?.location && (
