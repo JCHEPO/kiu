@@ -26,10 +26,14 @@ export function AuthProvider({ children }) {
     window.location.href = "/";
   };
 
-  const fetchWithAuth = (url, opts = {}) => {
+  const fetchWithAuth = async (url, opts = {}) => {
     const token = auth?.token;
     const headers = { ...(opts.headers || {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) };
-    return fetch(url, { ...opts, headers });
+    const res = await fetch(url, { ...opts, headers });
+    // Token inválido/expirado (p.ej. tras rotar JWT_SECRET) → cerrar sesión.
+    // ProtectedRoute redirige al home; el usuario vuelve a loguearse con un token válido.
+    if (res.status === 401 && token) setAuth(null);
+    return res;
   };
 
   return (

@@ -96,17 +96,25 @@ export default function EventDetailPage() {
     }
   };
 
+  // Muestra el mensaje de error real del backend. En 401 no alertamos:
+  // fetchWithAuth ya cerró la sesión y ProtectedRoute redirige al home.
+  const showApiError = async (res, fallback) => {
+    if (res.status === 401) return;
+    const data = await res.json().catch(() => ({}));
+    alert(data.error || fallback);
+  };
+
   const handleJoinEvent = async () => {
     try {
       const res = await fetchWithAuth(`${API_URL}/api/events/${id}/join`, {
         method: "POST"
       });
-      if (!res.ok) throw new Error("Error al unirse");
+      if (!res.ok) return showApiError(res, "No se pudo unir al evento");
       await fetchEventDetails();
       setShowLocationPopup(true);
     } catch (error) {
       console.error("Error joining event:", error);
-      alert("Error al unirse al evento");
+      alert("Error de conexión al unirse al evento");
     }
   };
 
@@ -115,11 +123,11 @@ export default function EventDetailPage() {
       const res = await fetchWithAuth(`${API_URL}/api/events/${id}/leave`, {
         method: "POST"
       });
-      if (!res.ok) throw new Error("Error al salir");
+      if (!res.ok) return showApiError(res, "No se pudo salir del evento");
       await fetchEventDetails();
     } catch (error) {
       console.error("Error leaving event:", error);
-      alert("Error al salir del evento");
+      alert("Error de conexión al salir del evento");
     }
   };
 
@@ -149,12 +157,12 @@ export default function EventDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: newMessage })
       });
-      if (!res.ok) throw new Error("Error al enviar mensaje");
+      if (!res.ok) return showApiError(res, "No se pudo enviar el mensaje");
       setNewMessage("");
       await fetchEventDetails();
     } catch (error) {
       console.error("Error sending message:", error);
-      alert("Error al enviar mensaje");
+      alert("Error de conexión al enviar mensaje");
     }
   };
 
@@ -168,12 +176,12 @@ export default function EventDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newItem })
       });
-      if (!res.ok) throw new Error("Error al agregar item");
+      if (!res.ok) return showApiError(res, "No se pudo agregar el item");
       setNewItem("");
       await fetchEventDetails();
     } catch (error) {
       console.error("Error adding item:", error);
-      alert("Error al agregar item");
+      alert("Error de conexión al agregar item");
     }
   };
 
@@ -182,11 +190,11 @@ export default function EventDetailPage() {
       const res = await fetchWithAuth(`${API_URL}/api/events/${id}/items/${itemId}/claim`, {
         method: "POST"
       });
-      if (!res.ok) throw new Error("Error al reclamar item");
+      if (!res.ok) return showApiError(res, "No se pudo reclamar el item");
       await fetchEventDetails();
     } catch (error) {
       console.error("Error claiming item:", error);
-      alert("Error al reclamar item");
+      alert("Error de conexión al reclamar item");
     }
   };
 
