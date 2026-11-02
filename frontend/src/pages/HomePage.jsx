@@ -7,6 +7,9 @@ import { REGIONES } from "../config/regiones";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 const FB_APP_ID = import.meta.env.VITE_FACEBOOK_APP_ID || "";
+// Google y Facebook se muestran solo si su ID está configurado (en Vercel o frontend/.env).
+// Sin VITE_GOOGLE_CLIENT_ID, la librería de Google lanza un error que dejaba la página en blanco.
+const GOOGLE_ENABLED = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
 
 // Load Facebook SDK once
 let fbSdkLoaded = false;
@@ -25,6 +28,12 @@ function loadFacebookSdk() {
   document.body.appendChild(script);
 }
 if (FB_APP_ID) loadFacebookSdk();
+
+// Botón de Google: componente aparte para que useGoogleLogin solo corra cuando Google está configurado.
+function GoogleButton({ style, onToken, onError }) {
+  const googleLogin = useGoogleLogin({ onSuccess: onToken, onError });
+  return <button style={style} onClick={() => googleLogin()}>Google</button>;
+}
 
 // LoginModal with login + register + welcome views
 function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
@@ -66,31 +75,28 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
     }
   };
 
-  // Google OAuth
-  const googleLogin = useGoogleLogin({
-    onSuccess: async (tokenResponse) => {
-      setError("");
-      try {
-        const res = await fetch(`${API_URL}/api/auth/google`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ accessToken: tokenResponse.access_token })
-        });
-        const data = await res.json();
-        if (data.error) {
-          setError(data.error);
-          return;
-        }
-        // Store data and ask for nickname
-        setOauthData(data);
-        setForm({ nickname: data.user.nombre || "" });
-        setView("askNickname");
-      } catch (err) {
-        setError("Error al conectar con Google");
+  // Google OAuth (lo llama GoogleButton con el token)
+  const handleGoogleToken = async (tokenResponse) => {
+    setError("");
+    try {
+      const res = await fetch(`${API_URL}/api/auth/google`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accessToken: tokenResponse.access_token })
+      });
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+        return;
       }
-    },
-    onError: () => setError("Error al iniciar sesion con Google")
-  });
+      // Store data and ask for nickname
+      setOauthData(data);
+      setForm({ nickname: data.user.nombre || "" });
+      setView("askNickname");
+    } catch (err) {
+      setError("Error al conectar con Google");
+    }
+  };
 
   // Facebook OAuth
   const handleFacebookLogin = () => {
@@ -388,13 +394,21 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
               Iniciar Sesion
             </button>
 
-            <div style={modalStyles.socialSection}>
-              <div style={modalStyles.socialText}>o inicia sesion con</div>
-              <div style={modalStyles.socialButtons}>
-                <button style={modalStyles.socialBtn} onClick={() => googleLogin()}>Google</button>
-                <button style={modalStyles.socialBtn} onClick={handleFacebookLogin}>Facebook</button>
+            {(GOOGLE_ENABLED || FB_APP_ID) && (
+              <div style={modalStyles.socialSection}>
+                <div style={modalStyles.socialText}>o inicia sesion con</div>
+                <div style={modalStyles.socialButtons}>
+                  {GOOGLE_ENABLED && (
+                    <GoogleButton
+                      style={modalStyles.socialBtn}
+                      onToken={handleGoogleToken}
+                      onError={() => setError("Error al iniciar sesion con Google")}
+                    />
+                  )}
+                  {FB_APP_ID && <button style={modalStyles.socialBtn} onClick={handleFacebookLogin}>Facebook</button>}
+                </div>
               </div>
-            </div>
+            )}
 
             <div style={modalStyles.switchLink}>
               No tienes cuenta?{" "}
@@ -517,13 +531,21 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
               Registrarse
             </button>
 
-            <div style={modalStyles.socialSection}>
-              <div style={modalStyles.socialText}>o registrate con</div>
-              <div style={modalStyles.socialButtons}>
-                <button style={modalStyles.socialBtn} onClick={() => googleLogin()}>Google</button>
-                <button style={modalStyles.socialBtn} onClick={handleFacebookLogin}>Facebook</button>
+            {(GOOGLE_ENABLED || FB_APP_ID) && (
+              <div style={modalStyles.socialSection}>
+                <div style={modalStyles.socialText}>o registrate con</div>
+                <div style={modalStyles.socialButtons}>
+                  {GOOGLE_ENABLED && (
+                    <GoogleButton
+                      style={modalStyles.socialBtn}
+                      onToken={handleGoogleToken}
+                      onError={() => setError("Error al iniciar sesion con Google")}
+                    />
+                  )}
+                  {FB_APP_ID && <button style={modalStyles.socialBtn} onClick={handleFacebookLogin}>Facebook</button>}
+                </div>
               </div>
-            </div>
+            )}
 
             <div style={modalStyles.switchLink}>
               Ya tienes cuenta?{" "}

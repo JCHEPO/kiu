@@ -93,9 +93,24 @@ const buildUserResponse = (user) => ({
 });
 
 // Google OAuth
+// Hay que comprobar que el token fue emitido para Kiu (GOOGLE_CLIENT_ID). Si no, cualquier otra app
+// con acceso a la cuenta de Google de alguien podría usar ese token para entrar a Kiu como esa persona.
 router.post("/google", authLimiter, async (req, res) => {
   try {
     const { accessToken } = req.body;
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      return res.status(503).json({ error: "El inicio de sesión con Google no está disponible" });
+    }
+    if (typeof accessToken !== "string" || !accessToken) {
+      return res.status(400).json({ error: "Falta el token de Google" });
+    }
+
+    const infoRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(accessToken)}`);
+    const info = await infoRes.json().catch(() => ({}));
+    if (!infoRes.ok || info.aud !== clientId) {
+      return res.status(401).json({ error: "Token de Google inválido" });
+    }
 
     // Use Google userinfo endpoint to get user data from access_token
     const googleRes = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo`, {
@@ -106,6 +121,10 @@ router.post("/google", authLimiter, async (req, res) => {
       return res.status(401).json({ error: "Token de Google inválido" });
     }
     const { sub: googleId, email, given_name, family_name } = payload;
+    // Solo emails verificados: con uno sin verificar se podría tomar la cuenta Kiu de otra persona con ese email
+    if (!email || payload.email_verified !== true) {
+      return res.status(400).json({ error: "Tu cuenta de Google no tiene un email verificado" });
+    }
 
     // Find by googleId or email
     let user = await User.findOne({ $or: [{ googleId }, { email }] });
@@ -136,12 +155,28 @@ router.post("/google", authLimiter, async (req, res) => {
 });
 
 // Facebook OAuth
+// Igual que con Google: el token tiene que ser de la app de Kiu (FACEBOOK_APP_ID).
 router.post("/facebook", authLimiter, async (req, res) => {
   try {
     const { accessToken } = req.body;
+    const appId = process.env.FACEBOOK_APP_ID;
+    if (!appId) {
+      return res.status(503).json({ error: "El inicio de sesión con Facebook no está disponible" });
+    }
+    if (typeof accessToken !== "string" || !accessToken) {
+      return res.status(400).json({ error: "Falta el token de Facebook" });
+    }
+    const token = encodeURIComponent(accessToken);
+
+    // ¿De qué app es este token?
+    const appRes = await fetch(`https://graph.facebook.com/app?access_token=${token}`);
+    const appData = await appRes.json().catch(() => ({}));
+    if (!appRes.ok || String(appData.id) !== String(appId)) {
+      return res.status(401).json({ error: "Token de Facebook inválido" });
+    }
 
     // Verify token with Facebook Graph API
-    const fbRes = await fetch(`https://graph.facebook.com/me?fields=id,name,email,first_name,last_name&access_token=${accessToken}`);
+    const fbRes = await fetch(`https://graph.facebook.com/me?fields=id,name,email,first_name,last_name&access_token=${token}`);
     const fbData = await fbRes.json();
 
     if (fbData.error) {

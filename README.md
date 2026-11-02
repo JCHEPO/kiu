@@ -54,6 +54,8 @@ Variables de `backend/.env`:
 | `PORT` | No | Puerto del backend (default `3000`) |
 | `FRONTEND_URL` | Sí (prod) | Origen permitido por CORS y base de los links en emails y vistas previas |
 | `SMTP_HOST/PORT/USER/PASS/FROM` | No | Emails de "recuperar contraseña" y avisos de eventos. Van en `backend/.env`. Sin SMTP, los correos se imprimen en la consola |
+| `GOOGLE_CLIENT_ID` | Para login con Google | El mismo Client ID que `VITE_GOOGLE_CLIENT_ID`. El backend rechaza tokens de otras apps. Sin esta variable, el login con Google queda desactivado |
+| `FACEBOOK_APP_ID` | Para login con Facebook | El mismo App ID que `VITE_FACEBOOK_APP_ID`. Sin esta variable, el login con Facebook queda desactivado |
 | `APP_TIMEZONE` | No | Zona horaria de las fechas en avisos y vistas previas (default `America/Santiago`) |
 | `CRON_SECRET` | No | Activa `POST /api/internal/recordatorios` para un cron externo (header `x-cron-secret`) |
 
@@ -66,7 +68,7 @@ cp .env.example .env   # y editar los valores
 npm run dev            # corre en http://localhost:5173
 ```
 
-Variables de `frontend/.env`: `VITE_API_URL` (URL del backend), `VITE_GOOGLE_CLIENT_ID`, `VITE_FACEBOOK_APP_ID` (el login con Facebook requiere HTTPS), `VITE_SITE_URL` (URL pública del frontend, para la imagen de vista previa).
+Variables de `frontend/.env`: `VITE_API_URL` (URL del backend), `VITE_GOOGLE_CLIENT_ID`, `VITE_FACEBOOK_APP_ID` (el login con Facebook requiere HTTPS), `VITE_SITE_URL` (URL pública del frontend, para la imagen de vista previa). Los botones de Google y Facebook solo aparecen si su variable está definida.
 
 ### Vista previa en WhatsApp
 
