@@ -45,7 +45,14 @@ export default function AdminPage() {
   const navigate = useNavigate();
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
-  const [openSection, setOpenSection] = useState("lugares");
+  const [openSection, setOpenSection] = useState("metricas");
+
+  // --- MÉTRICAS y REPORTES state ---
+  const [metrics, setMetrics] = useState(null);
+  const [loadingMetrics, setLoadingMetrics] = useState(false);
+  const [reports, setReports] = useState(null);
+  const [reportsEstado, setReportsEstado] = useState("pendiente");
+  const [loadingReports, setLoadingReports] = useState(false);
 
   // --- LUGARES state ---
   const [canchas, setCanchas] = useState([]);
@@ -84,6 +91,8 @@ export default function AdminPage() {
     if (openSection === "usuarios" && users === null) loadUsers();
     if (openSection === "eventos" && adminEvents === null) loadAdminEvents();
     if (openSection === "verificaciones" && verifications === null) loadVerifications();
+    if (openSection === "metricas" && metrics === null) loadMetrics();
+    if (openSection === "reportes" && reports === null) loadReports("pendiente");
   }, [openSection]);
 
   const toggleSection = (key) => setOpenSection(prev => prev === key ? null : key);
@@ -294,7 +303,7 @@ export default function AdminPage() {
   };
 
   const deleteUser = async (id) => {
-    if (!window.confirm("¿Estás seguro de que querés eliminar este usuario?\nEsta acción no se puede deshacer.")) return;
+    if (!window.confirm("¿Eliminar este usuario?\nSe borran también sus eventos (se avisa a los inscritos), sus mensajes e inscripciones.\nEsta acción no se puede deshacer.")) return;
     const res = await fetchWithAuth(`${API_URL}/api/admin/users/${id}`, { method: "DELETE" });
     if (res.ok) setUsers(prev => prev.filter(u => u._id !== id));
   };
@@ -313,6 +322,36 @@ export default function AdminPage() {
     if (!window.confirm("¿Eliminar este evento?")) return;
     const res = await fetchWithAuth(`${API_URL}/api/admin/events/${id}`, { method: "DELETE" });
     if (res.ok) setAdminEvents(prev => prev.filter(e => e._id !== id));
+  };
+
+  // --- MÉTRICAS handlers ---
+  const loadMetrics = async () => {
+    setLoadingMetrics(true);
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/metrics`);
+      setMetrics(res.ok ? await res.json() : { error: true });
+    } catch { setMetrics({ error: true }); }
+    finally { setLoadingMetrics(false); }
+  };
+
+  // --- REPORTES handlers ---
+  const loadReports = async (estado) => {
+    setReportsEstado(estado);
+    setLoadingReports(true);
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/reports?estado=${estado}`);
+      setReports(res.ok ? await res.json() : []);
+    } catch { setReports([]); }
+    finally { setLoadingReports(false); }
+  };
+
+  const resolverReporte = async (id, estado, sumarStrike = false) => {
+    const res = await fetchWithAuth(`${API_URL}/api/admin/reports/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ estado, sumarStrike })
+    });
+    if (res.ok) setReports(prev => prev.filter(r => r._id !== id));
   };
 
   // --- VERIFICACIONES handlers ---
@@ -357,6 +396,76 @@ export default function AdminPage() {
 
       <div style={{ maxWidth: "900px", margin: "0 auto", padding: isMobile ? "16px" : "40px" }}>
         <h1 style={S.pageTitle}>Administración</h1>
+
+        {/* ── MÉTRICAS DEL PILOTO ── */}
+        <div style={S.card}>
+          <SectionHeader title="Métricas del piloto" isOpen={openSection === "metricas"} onClick={() => toggleSection("metricas")} />
+          {openSection === "metricas" && (
+            <div style={{ padding: "0 24px 24px" }}>
+              {loadingMetrics || !metrics
+                ? <div style={S.empty}>Cargando...</div>
+                : metrics.error
+                  ? <div style={S.empty}>No se pudieron cargar las métricas</div>
+                  : <>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px", marginBottom: "20px" }}>
+                      {metrics.kpis.map(k => {
+                        const pct = (v) => `${Math.round(v * 100)}%`;
+                        const estado = k.valor === null ? "sin" : k.valor >= k.meta ? "ok" : "bajo";
+                        const badge = estado === "ok"
+                          ? { ...S.badgeGreen, text: "✓ Cumple la meta" }
+                          : estado === "bajo"
+                            ? { ...S.badgeYellow, text: "↓ Bajo la meta" }
+                            : { ...S.badgeGray, text: "… Sin datos aún" };
+                        const { text, ...badgeStyle } = badge;
+                        return (
+                          <div key={k.clave} style={{ border: "2px solid #333", borderRadius: "12px", padding: "16px", background: "#fff" }}>
+                            <div style={{ fontSize: "13px", fontWeight: 700, color: "#444", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', minHeight: "34px" }}>{k.titulo}</div>
+                            <div style={{ fontSize: "40px", fontWeight: 900, lineHeight: 1.1, margin: "8px 0 2px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', color: "#000" }}>
+                              {k.valor === null ? "—" : pct(k.valor)}
+                            </div>
+                            <div style={{ fontSize: "13px", color: "#555", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', marginBottom: "8px" }}>
+                              {k.numerador} de {k.denominador} · meta {pct(k.meta)}
+                            </div>
+                            <span style={badgeStyle}>{text}</span>
+                            <div style={{ fontSize: "12px", color: "#777", marginTop: "10px", lineHeight: 1.4, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>{k.nota}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div style={{ fontSize: "15px", fontWeight: 800, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', marginBottom: "8px" }}>Últimas 8 semanas</div>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+                        <thead>
+                          <tr>
+                            {["Semana", "Registros", "Eventos creados", "Uniones", "Salidas", "Vistas sin cuenta"].map((h, i) => (
+                              <th key={h} style={{ textAlign: i === 0 ? "left" : "right", padding: "8px 6px", borderBottom: "2px solid #333", whiteSpace: "nowrap" }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {metrics.semanas.map((w, i) => (
+                            <tr key={i} style={{ borderBottom: "1px solid #eee" }}>
+                              <td style={{ padding: "8px 6px", whiteSpace: "nowrap" }}>
+                                {new Date(w.desde).toLocaleDateString("es-CL", { day: "numeric", month: "short" })} – {new Date(w.hasta).toLocaleDateString("es-CL", { day: "numeric", month: "short" })}
+                              </td>
+                              {[w.registro, w.evento_creado, w.union, w.salida, w.vista_publica].map((n, j) => (
+                                <td key={j} style={{ padding: "8px 6px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{n}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px", gap: "8px", flexWrap: "wrap" }}>
+                      <span style={S.rowSub}>Actualizado {new Date(metrics.generado).toLocaleString("es-CL")}</span>
+                      <button style={S.btnOutline} onClick={loadMetrics}>Actualizar</button>
+                    </div>
+                  </>
+              }
+            </div>
+          )}
+        </div>
 
         {/* ── LUGARES ── */}
         <div style={S.card}>
@@ -661,6 +770,55 @@ export default function AdminPage() {
           )}
         </div>
 
+        {/* ── REPORTES ── */}
+        <div style={S.card}>
+          <SectionHeader
+            title="Reportes"
+            badge={reportsEstado === "pendiente" ? reports?.length : undefined}
+            isOpen={openSection === "reportes"}
+            onClick={() => toggleSection("reportes")}
+          />
+          {openSection === "reportes" && (
+            <div style={{ padding: "0 24px 24px" }}>
+              <div style={{ display: "flex", gap: "8px", marginBottom: "12px", flexWrap: "wrap" }}>
+                {[["pendiente", "Pendientes"], ["resuelto", "Resueltos"], ["descartado", "Descartados"]].map(([v, l]) => (
+                  <button key={v} style={S.chip(reportsEstado === v)} onClick={() => loadReports(v)}>{l}</button>
+                ))}
+              </div>
+              {loadingReports
+                ? <div style={S.empty}>Cargando...</div>
+                : (reports || []).length === 0
+                  ? <div style={S.empty}>{reportsEstado === "pendiente" ? "No hay reportes pendientes" : "No hay reportes"}</div>
+                  : reports.map(r => {
+                    const persona = (u) => u ? [u.nombre, u.apellido].filter(Boolean).join(" ") || u.email : "cuenta borrada";
+                    return (
+                      <div key={r._id} style={{ ...S.row, alignItems: "flex-start" }}>
+                        <div style={{ flex: 1, minWidth: "220px" }}>
+                          <div style={S.rowTitle}>
+                            {r.tipo === "evento" ? "Evento" : "Usuario"}: {r.targetTitulo || "—"}
+                          </div>
+                          <div style={S.rowSub}>
+                            {r.motivo} · por {persona(r.reporter)} · {formatDate(r.createdAt)}
+                            {r.targetUser && <> · {r.tipo === "evento" ? "organiza" : "reportado"}: {persona(r.targetUser)} ({r.targetUser.strikes || 0} strikes{r.targetUser.activo === false ? ", suspendido" : ""})</>}
+                          </div>
+                          {r.detalle && <div style={{ fontSize: "13px", marginTop: "6px", color: "#333", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>“{r.detalle}”</div>}
+                          {r.targetEvent && <a href={`/event/${r.targetEvent._id}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: "12px" }}>Ver evento</a>}
+                        </div>
+                        {reportsEstado === "pendiente" && (
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                            {r.targetUser && <button style={S.btnDanger} onClick={() => resolverReporte(r._id, "resuelto", true)}>Sumar strike y resolver</button>}
+                            <button style={S.btnGreen} onClick={() => resolverReporte(r._id, "resuelto")}>Resolver</button>
+                            <button style={S.btnOutline} onClick={() => resolverReporte(r._id, "descartado")}>Descartar</button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+              }
+            </div>
+          )}
+        </div>
+
       </div>
     </div>
   );
@@ -693,5 +851,7 @@ const S = {
   empty: { textAlign: "center", padding: "24px", color: "#999", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' },
   badgeBlue: { background: "#e3f2fd", color: "#1565c0", borderRadius: "20px", padding: "2px 8px", fontSize: "11px", fontWeight: 700, fontFamily: '"Bricolage Grotesque", sans-serif' },
   badgeRed: { background: "#ffebee", color: "#c62828", borderRadius: "20px", padding: "2px 8px", fontSize: "11px", fontWeight: 700, fontFamily: '"Bricolage Grotesque", sans-serif' },
-  badgeYellow: { background: "#fff8e1", color: "#f57f17", borderRadius: "20px", padding: "2px 8px", fontSize: "11px", fontWeight: 700, fontFamily: '"Bricolage Grotesque", sans-serif' }
+  badgeYellow: { background: "#fff8e1", color: "#f57f17", borderRadius: "20px", padding: "2px 8px", fontSize: "11px", fontWeight: 700, fontFamily: '"Bricolage Grotesque", sans-serif' },
+  badgeGreen: { background: "#e8f5e9", color: "#2e7d32", borderRadius: "20px", padding: "2px 8px", fontSize: "11px", fontWeight: 700, fontFamily: '"Bricolage Grotesque", sans-serif' },
+  badgeGray: { background: "#f0f0f0", color: "#555", borderRadius: "20px", padding: "2px 8px", fontSize: "11px", fontWeight: 700, fontFamily: '"Bricolage Grotesque", sans-serif' }
 };

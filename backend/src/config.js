@@ -15,3 +15,14 @@ export const JWT_SECRET = process.env.JWT_SECRET;
 
 // Duración de la sesión. Al vencer, el usuario tiene que volver a iniciar sesión.
 export const JWT_EXPIRES_IN = "30d";
+
+// Términos y política de privacidad: al cambiar su texto, actualizar esta versión (fecha).
+// Se guarda junto a la fecha en que cada usuario los aceptó.
+export const TERMINOS_VERSION = "2026-11-02";
+
+// Edad mínima para crear una cuenta (debe coincidir con frontend/src/config/legal.js)
+export const EDAD_MINIMA = 18;
+
+// Géneros que se pueden elegir. "LGTBQ+" es el valor antiguo de "Otro": se acepta y se convierte.
+export const GENEROS_VALIDOS = ["Hombre", "Mujer", "Otro"];
+export const normalizarGenero = (g) => (g === "LGTBQ+" ? "Otro" : g);

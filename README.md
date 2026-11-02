@@ -58,6 +58,8 @@ Variables de `backend/.env`:
 | `FACEBOOK_APP_ID` | Para login con Facebook | El mismo App ID que `VITE_FACEBOOK_APP_ID`. Sin esta variable, el login con Facebook queda desactivado |
 | `APP_TIMEZONE` | No | Zona horaria de las fechas en avisos y vistas previas (default `America/Santiago`) |
 | `CRON_SECRET` | No | Activa `POST /api/internal/recordatorios` para un cron externo (header `x-cron-secret`) |
+| `ALERT_EMAIL` | No | Email que recibe un aviso cuando hay errores del servidor o del navegador (máx. 1 por error cada 15 min y 20 por día). Necesita SMTP |
+| `BACKUP_DIR` / `BACKUP_KEEP` | No | Carpeta de los respaldos (default `backups`) y cuántas copias guardar (default `8`) |
 
 ### Frontend
 
@@ -84,6 +86,23 @@ Para que los links normales (`https://<frontend>/event/<id>`) muestren esa vista
 }
 ```
 
+### Monitoreo de errores
+
+- `GET /api/health` responde `200` si el servidor y la base de datos están bien, o `503` si no. Conviene configurar un monitor gratuito (UptimeRobot, Better Stack) que la revise cada 5 minutos y te avise si falla. En Render gratis, ese chequeo además evita que el servidor se apague por falta de tráfico.
+- Toda respuesta con error 5xx, los errores no atrapados del proceso y los errores del navegador (`POST /api/client-errors`) quedan en los logs como `[error:...]`. Con `ALERT_EMAIL` también llegan por correo.
+
+### Respaldo de la base de datos
+
+En MongoDB Atlas, activa el respaldo del clúster (incluso en el plan gratis: una copia diaria, guarda las últimas cuatro). Además, saca una copia propia de vez en cuando (por ejemplo, cada semana):
+
+```bash
+cd backend
+npm run respaldo                                          # → backups/kiu-AAAA-MM-DDTHH-MM/
+npm run restaurar -- backups/kiu-2026-11-02T10-00 --confirmar   # reemplaza la base por ese respaldo
+```
+
+Los respaldos tienen datos personales: `backups/` está en `.gitignore`. Guárdalos en un lugar privado y no los compartas. Antes de restaurar en producción, prueba con otra base (`MONGO_URI=.../kiu-prueba`).
+
 ### Avisos
 
 Los participantes reciben avisos en la app y por email cuando: falta poco para el evento (recordatorio unas 3 horas antes), el evento llega al mínimo y queda confirmado, cambia la fecha o el lugar, o se cancela. El creador recibe un aviso en la app cuando alguien se une. El recordatorio corre cada 10 minutos mientras el backend está encendido; si el host lo apaga sin tráfico, configurar `CRON_SECRET` y un cron externo que llame a `POST /api/internal/recordatorios`.
@@ -98,6 +117,10 @@ Los participantes reciben avisos en la app y por email cuando: falta poco para e
 - Detalle de evento público: sin sesión se ve el evento (sin nombres ni muro) y se pide login solo para unirse
 - Avisos en la app y por email: recordatorio, evento confirmado, cambios de fecha o lugar, cancelación; el creador ve quién se une
 - "Otro lugar" al crear: cualquier sitio con nombre, comuna y link de Google Maps opcional
+- Términos y condiciones (`/terminos`) y Política de privacidad (`/privacidad`); al registrarse se guarda la aceptación (fecha y versión). Edad mínima: 18 años
+- Perfil: descargar mis datos (JSON) y borrar mi cuenta (borra eventos propios, mensajes, inscripciones y avisos)
+- Reportar usuarios y eventos; el admin los revisa en el panel y puede sumar un strike
+- Panel admin → Métricas del piloto: organizadores que repiten, eventos que llegan al mínimo, conversión de links compartidos y conteos semanales (registro propio, sin cookies ni servicios externos)
 - Panel admin: lugares/canchas (con geocoding), usuarios (banear, verificar, strikes), eventos
 - Perfil de usuario editable + verificación de cuenta
 
@@ -117,4 +140,7 @@ Los participantes reciben avisos en la app y por email cuando: falta poco para e
 - `POST /api/events` · `GET/PUT/DELETE /api/events/:id` · `POST /api/events/:id/join|leave|messages|items`
 - `GET /api/events/:id` sin token → vista pública `{ ..., participantCount, isPublicView: true }`
 - `GET /share/event/:id` → HTML con etiquetas `og:` para vistas previas
+- `GET /api/auth/me/datos` (copia de mis datos) · `DELETE /api/auth/me` (body `{ password }` o `{ confirmacion: "BORRAR" }`)
+- `POST /api/reports` (`{ tipo: "usuario" | "evento", id, motivo, detalle? }`) · `GET/PATCH /api/admin/reports` · `GET /api/admin/metrics`
+- `GET /api/health` · `POST /api/client-errors`
 - `POST /api/auth/register|login|google|facebook|forgot-password|reset-password` · `GET/PATCH /api/auth/me`

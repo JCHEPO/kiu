@@ -7,7 +7,8 @@ const UserSchema = new mongoose.Schema({
   facebookId: String,
   nombre: String,
   apellido: String,
-  genero: { type: String, enum: ["Hombre", "Mujer", "LGTBQ+"] },
+  // "Otro" = "Otro o prefiero no decir". "LGTBQ+" queda solo para datos antiguos (server.js los convierte al iniciar).
+  genero: { type: String, enum: ["Hombre", "Mujer", "Otro", "LGTBQ+"] },
   fechaNacimiento: { type: Date },
   fechaRegistro: { type: Date, default: Date.now },
   telefono: { type: String },
@@ -17,7 +18,10 @@ const UserSchema = new mongoose.Schema({
   strikes: { type: Number, default: 0 },
   activo: { type: Boolean, default: true },
   resetToken: { type: String },
-  resetTokenExpiry: { type: Date }
+  resetTokenExpiry: { type: Date },
+  // Cuándo aceptó los términos y la política de privacidad, y qué versión
+  aceptaTerminosAt: { type: Date },
+  terminosVersion: { type: String }
 }, {
   toJSON: { virtuals: true },
   toObject: { virtuals: true }

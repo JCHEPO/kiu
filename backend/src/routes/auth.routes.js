@@ -7,7 +7,9 @@ import User from "../models/User.js";
 import Event from "../models/Event.js";
 import { authenticate } from "../middleware/auth.middleware.js";
 import { sendEmail } from "../utils/email.js";
-import { JWT_SECRET, JWT_EXPIRES_IN } from "../config.js";
+import { JWT_SECRET, JWT_EXPIRES_IN, TERMINOS_VERSION, EDAD_MINIMA, GENEROS_VALIDOS, normalizarGenero } from "../config.js";
+import { registrarActividad } from "../utils/actividad.js";
+import { eliminarCuenta, exportarDatos } from "../utils/cuentas.js";
 
 const router = express.Router();
 
@@ -26,6 +28,13 @@ const registerLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Demasiados registros desde esta conexión. Probá más tarde." }
 });
+const deleteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Demasiados intentos. Probá de nuevo en unos minutos." }
+});
 const recoveryLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 5,
@@ -34,27 +43,52 @@ const recoveryLimiter = rateLimit({
   message: { error: "Demasiadas solicitudes. Probá de nuevo en unos minutos." }
 });
 
-const GENEROS_VALIDOS = ["Hombre", "Mujer", "LGTBQ+"];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Texto opcional (o requerido) de hasta `max` caracteres
+const textoValido = (v, max, requerido = false) =>
+  v === undefined || v === null || v === "" ? !requerido : typeof v === "string" && v.trim().length <= max && (!requerido || v.trim().length > 0);
+
+// Años cumplidos a hoy
+const edadEn = (fecha) => {
+  const n = new Date(fecha), hoy = new Date();
+  let edad = hoy.getUTCFullYear() - n.getUTCFullYear();
+  const m = hoy.getUTCMonth() - n.getUTCMonth();
+  if (m < 0 || (m === 0 && hoy.getUTCDate() < n.getUTCDate())) edad--;
+  return edad;
+};
 
 router.post("/register", registerLimiter, async (req, res) => {
   try {
-    const { email, password, nombre, apellido, genero, fechaNacimiento } = req.body;
+    const { email, password, nombre, apellido, fechaNacimiento, aceptaTerminos } = req.body;
+    const genero = normalizarGenero(req.body.genero);
 
     const cleanEmail = typeof email === "string" ? email.trim() : "";
     if (!EMAIL_RE.test(cleanEmail)) return res.status(400).json({ error: "Email inválido" });
     if (typeof password !== "string" || password.length < 6)
       return res.status(400).json({ error: "La contraseña debe tener al menos 6 caracteres" });
+    if (!textoValido(nombre, 50, true))
+      return res.status(400).json({ error: "Ingresa tu nombre (máx 50 caracteres)" });
+    if (!textoValido(apellido, 50))
+      return res.status(400).json({ error: "El apellido es demasiado largo" });
     if (genero && !GENEROS_VALIDOS.includes(genero))
       return res.status(400).json({ error: "Género inválido" });
     if (fechaNacimiento && isNaN(new Date(fechaNacimiento).getTime()))
       return res.status(400).json({ error: "Fecha de nacimiento inválida" });
+    if (fechaNacimiento && edadEn(fechaNacimiento) < EDAD_MINIMA)
+      return res.status(400).json({ error: `Debes tener al menos ${EDAD_MINIMA} años para usar Kiu` });
+    if (aceptaTerminos !== true)
+      return res.status(400).json({ error: "Debes aceptar los Términos y la Política de privacidad" });
 
     const exists = await User.findOne({ email: cleanEmail });
     if (exists) return res.status(400).json({ error: "Email ya registrado" });
 
     const hash = await bcrypt.hash(password, 10);
-    await User.create({ email: cleanEmail, password: hash, nombre, apellido, genero, fechaNacimiento });
+    const nuevo = await User.create({
+      email: cleanEmail, password: hash, nombre: nombre.trim(), apellido: typeof apellido === "string" ? apellido.trim() : "",
+      genero, fechaNacimiento, aceptaTerminosAt: new Date(), terminosVersion: TERMINOS_VERSION
+    });
+    registrarActividad("registro", { user: nuevo._id });
 
     res.json({ message: "Usuario creado" });
   } catch (err) {
@@ -143,6 +177,7 @@ router.post("/google", authLimiter, async (req, res) => {
         nombre: given_name || "",
         apellido: family_name || ""
       });
+      registrarActividad("registro", { user: user._id });
     }
 
     if (user.activo === false) return res.status(403).json({ error: "Cuenta suspendida" });
@@ -204,6 +239,7 @@ router.post("/facebook", authLimiter, async (req, res) => {
         nombre: first_name || "",
         apellido: last_name || ""
       });
+      registrarActividad("registro", { user: user._id });
     }
 
     if (user.activo === false) return res.status(403).json({ error: "Cuenta suspendida" });
@@ -218,12 +254,16 @@ router.post("/facebook", authLimiter, async (req, res) => {
 // Update user nickname
 router.patch("/me/nickname", authenticate, async (req, res) => {
   try {
-    const { nombre } = req.body;
-    const user = await User.findByIdAndUpdate(
-      req.user.id,
-      { nombre },
-      { new: true }
-    );
+    // Después de entrar con Google o Facebook: el nombre a mostrar y la aceptación de los términos
+    const { nombre, aceptaTerminos } = req.body;
+    if (!textoValido(nombre, 50, true))
+      return res.status(400).json({ error: "Ingresa tu nombre o apodo (máx 50 caracteres)" });
+    const update = { nombre: nombre.trim() };
+    if (aceptaTerminos === true) {
+      update.aceptaTerminosAt = new Date();
+      update.terminosVersion = TERMINOS_VERSION;
+    }
+    const user = await User.findByIdAndUpdate(req.user.id, update, { new: true });
     if (!user) {
       return res.status(404).json({ error: "Usuario no encontrado" });
     }
@@ -239,7 +279,7 @@ router.get("/me", authenticate, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
-    res.json({ user: { id: user._id, email: user.email, nombre: user.nombre, apellido: user.apellido, genero: user.genero, fechaNacimiento: user.fechaNacimiento, telefono: user.telefono, verificado: user.verificado, rol: user.rol } });
+    res.json({ user: { id: user._id, email: user.email, nombre: user.nombre, apellido: user.apellido, genero: user.genero, fechaNacimiento: user.fechaNacimiento, telefono: user.telefono, verificado: user.verificado, solicitaVerificacion: user.solicitaVerificacion, rol: user.rol, tienePassword: !!user.password } });
   } catch (err) {
     res.status(500).json({ error: "Error al obtener datos" });
   }
@@ -248,9 +288,14 @@ router.get("/me", authenticate, async (req, res) => {
 // PATCH /api/auth/me - actualizar perfil
 router.patch("/me", authenticate, async (req, res) => {
   try {
-    const { nombre, apellido, genero, fechaNacimiento, telefono } = req.body;
+    const { nombre, apellido, fechaNacimiento, telefono } = req.body;
+    const genero = normalizarGenero(req.body.genero);
     if (genero && !GENEROS_VALIDOS.includes(genero))
       return res.status(400).json({ error: "Género inválido" });
+    if (!textoValido(nombre, 50) || !textoValido(apellido, 50) || !textoValido(telefono, 20))
+      return res.status(400).json({ error: "Algún dato es demasiado largo" });
+    if (fechaNacimiento && isNaN(new Date(fechaNacimiento).getTime()))
+      return res.status(400).json({ error: "Fecha de nacimiento inválida" });
     const update = {};
     if (nombre !== undefined) update.nombre = nombre;
     if (apellido !== undefined) update.apellido = apellido;
@@ -262,6 +307,43 @@ router.patch("/me", authenticate, async (req, res) => {
     res.json({ user: { id: user._id, email: user.email, nombre: user.nombre, apellido: user.apellido, genero: user.genero, fechaNacimiento: user.fechaNacimiento, telefono: user.telefono, verificado: user.verificado, rol: user.rol } });
   } catch (err) {
     res.status(500).json({ error: "Error al actualizar perfil" });
+  }
+});
+
+// GET /api/auth/me/datos - descargar una copia de mis datos (acceso y portabilidad)
+router.get("/me/datos", authenticate, async (req, res) => {
+  try {
+    const datos = await exportarDatos(req.user.id);
+    if (!datos) return res.status(404).json({ error: "Usuario no encontrado" });
+    res.set("Content-Disposition", `attachment; filename="kiu-mis-datos-${new Date().toISOString().slice(0, 10)}.json"`);
+    res.json(datos);
+  } catch (err) {
+    console.error("Error exportando datos:", err);
+    res.status(500).json({ error: "Error al preparar tus datos" });
+  }
+});
+
+// DELETE /api/auth/me - borrar mi cuenta y mis datos
+// Confirmación: la contraseña si la cuenta tiene una; si entró con Google o Facebook, escribir "BORRAR".
+router.delete("/me", authenticate, deleteLimiter, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+
+    if (user.password) {
+      const { password } = req.body || {};
+      if (typeof password !== "string" || !(await bcrypt.compare(password, user.password)))
+        // 403 y no 401: el frontend trata un 401 como sesión vencida y cerraría la sesión
+        return res.status(403).json({ error: "Contraseña incorrecta" });
+    } else if ((req.body?.confirmacion || "").trim().toUpperCase() !== "BORRAR") {
+      return res.status(400).json({ error: 'Escribe BORRAR para confirmar' });
+    }
+
+    await eliminarCuenta(user._id, req.app.get("io"), { motivo: "pedido del usuario" });
+    res.json({ message: "Tu cuenta y tus datos fueron eliminados" });
+  } catch (err) {
+    console.error("Error borrando cuenta:", err);
+    res.status(500).json({ error: "Error al borrar la cuenta" });
   }
 });
 

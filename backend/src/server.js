@@ -6,6 +6,7 @@ import { Server } from "socket.io";
 import mongoose from "mongoose";
 import cors from "cors";
 import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import jwt from "jsonwebtoken";
 import authRoutes from "./routes/auth.routes.js";
 import eventsRoutes from "./routes/events.routes.js";
@@ -13,7 +14,18 @@ import notificationsRoutes from "./routes/notifications.routes.js";
 import canchasRoutes from "./routes/canchas.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import shareRoutes from "./routes/share.routes.js";
+import reportsRoutes from "./routes/reports.routes.js";
 import { enviarRecordatorios } from "./jobs/recordatorios.js";
+import { reportarError } from "./utils/alertas.js";
+import User from "./models/User.js";
+
+// Errores que nadie atrapó: se registran (y se avisan por email si hay ALERT_EMAIL).
+// Ante una excepción no atrapada el proceso queda en estado dudoso: se cierra y el host lo reinicia.
+process.on("unhandledRejection", (reason) => reportarError("proceso", reason));
+process.on("uncaughtException", (err) => {
+  reportarError("proceso", err);
+  setTimeout(() => process.exit(1), 1000); // da tiempo a enviar la alerta
+});
 
 mongoose.connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/petu");
 
@@ -28,7 +40,36 @@ app.use(cors({
   methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
-app.use(express.json());
+app.use(express.json({ limit: "100kb" }));
+
+// Toda respuesta 5xx queda registrada (las rutas responden 500 en sus propios catch)
+app.use((req, res, next) => {
+  res.on("finish", () => {
+    if (res.statusCode >= 500 && !res.locals.errorReportado) {
+      reportarError("servidor", new Error(`${req.method} ${req.baseUrl || ""}${req.path} respondió ${res.statusCode}`), { status: res.statusCode });
+    }
+  });
+  next();
+});
+
+// Estado del servicio, para un monitor externo (UptimeRobot, Better Stack, etc.)
+app.get("/api/health", (req, res) => {
+  const db = mongoose.connection.readyState === 1 ? "conectada" : "desconectada";
+  res.status(db === "conectada" ? 200 : 503).json({ ok: db === "conectada", db, uptime: Math.round(process.uptime()) });
+});
+
+// Errores del navegador (ver frontend/src/utils/reportarError.js). Con límite por IP.
+const clientErrorLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false });
+app.post("/api/client-errors", clientErrorLimiter, (req, res) => {
+  const { message, stack, url, userAgent } = req.body || {};
+  if (typeof message === "string" && message.trim()) {
+    reportarError("navegador", { message: message.slice(0, 300), stack: typeof stack === "string" ? stack : "" }, {
+      url: typeof url === "string" ? url.slice(0, 300) : "",
+      userAgent: typeof userAgent === "string" ? userAgent.slice(0, 200) : ""
+    });
+  }
+  res.status(204).end();
+});
 
 // Socket.IO setup
 const server = createServer(app);
@@ -78,6 +119,7 @@ app.use("/api/events", eventsRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/canchas", canchasRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/reports", reportsRoutes);
 app.use("/share", shareRoutes); // vistas previas para WhatsApp y otros (ver share.routes.js)
 
 // --- Recordatorios antes de cada evento ---
@@ -85,6 +127,10 @@ app.use("/share", shareRoutes); // vistas previas para WhatsApp y otros (ver sha
 const correrRecordatorios = () =>
   enviarRecordatorios(io).catch((err) => console.error("Error en recordatorios:", err));
 mongoose.connection.once("open", () => {
+  // Género: "LGTBQ+" pasó a ser "Otro" ("Otro o prefiero no decir"). Se convierte una vez; no hace nada si ya no quedan.
+  User.updateMany({ genero: "LGTBQ+" }, { $set: { genero: "Otro" } })
+    .then((r) => { if (r.modifiedCount) console.log(`Género actualizado a "Otro" en ${r.modifiedCount} usuarios`); })
+    .catch((err) => reportarError("servidor", err));
   correrRecordatorios();
   setInterval(correrRecordatorios, 10 * 60 * 1000);
 });
@@ -102,6 +148,16 @@ app.post("/api/internal/recordatorios", async (req, res) => {
     console.error("Error en recordatorios:", err);
     res.status(500).json({ error: "Error al enviar recordatorios" });
   }
+});
+
+// Errores que llegan a Express sin respuesta (p.ej. un JSON mal formado)
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  if (err?.type === "entity.parse.failed") return res.status(400).json({ error: "JSON inválido" });
+  if (err?.type === "entity.too.large") return res.status(413).json({ error: "La solicitud es demasiado grande" });
+  reportarError("servidor", err, { ruta: `${req.method} ${req.originalUrl}` });
+  res.locals.errorReportado = true;
+  res.status(500).json({ error: "Error interno" });
 });
 
 const PORT = process.env.PORT || 3000;

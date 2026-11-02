@@ -3,6 +3,9 @@ import ReactDOM from "react-dom/client";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 import App from "./app.jsx";
 import { AuthProvider } from "./context/AuthContext";
+import { reportarError, escucharErroresGlobales } from "./utils/reportarError";
+
+escucharErroresGlobales();
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
@@ -19,6 +22,7 @@ class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, info) {
     console.error("Error en la app:", error, info?.componentStack);
+    reportarError(error, { componentStack: info?.componentStack });
   }
 
   render() {

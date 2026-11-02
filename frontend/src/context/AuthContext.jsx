@@ -2,10 +2,14 @@ import React, { createContext, useState, useEffect } from "react";
 
 export const AuthContext = createContext();
 
+// Dónde se guarda la sesión en el navegador
+const STORAGE_KEY = "kiu_auth";
+
 export function AuthProvider({ children }) {
   const [auth, setAuth] = useState(() => {
     try {
-      const raw = localStorage.getItem("petu_auth");
+      // "petu_auth" es el nombre antiguo: se lee para no cerrar la sesión de nadie (el efecto de abajo lo borra)
+      const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("petu_auth");
       return raw ? JSON.parse(raw) : null;
     } catch (e) {
       return null;
@@ -13,14 +17,17 @@ export function AuthProvider({ children }) {
   });
 
   useEffect(() => {
-    if (auth) localStorage.setItem("petu_auth", JSON.stringify(auth));
-    else localStorage.removeItem("petu_auth");
+    try {
+      if (auth) localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
+      else localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem("petu_auth");
+    } catch (e) {}
   }, [auth]);
 
   const login = ({ token, user }) => {
     // Guardar de inmediato: después del login se recarga o se navega a otra página,
     // y no hay que depender de que el useEffect alcance a correr antes.
-    try { localStorage.setItem("petu_auth", JSON.stringify({ token, user })); } catch (e) {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ token, user })); } catch (e) {}
     setAuth({ token, user });
   };
 

@@ -5,6 +5,7 @@ import Event from "../models/Event.js";
 import User from "../models/User.js";
 import { esLinkDeMaps } from "../utils/maps.js";
 import { notify, formatFechaHora, totalParticipantes } from "../utils/notify.js";
+import { registrarActividad } from "../utils/actividad.js";
 
 const router = express.Router();
 
@@ -183,6 +184,7 @@ router.post("/", authenticate, async (req, res) => {
       items: initialItems
     });
     res.json(event);
+    registrarActividad("evento_creado", { user: req.user.id, event: event._id });
   } catch (err) {
     console.error("Error al crear evento:", err);
     res.status(500).json({ error: "Error al crear evento", details: err.message });
@@ -202,7 +204,10 @@ router.get("/:id", optionalAuth, async (req, res) => {
       return res.status(404).json({ error: "Evento no encontrado" });
     }
 
-    if (!req.user) return res.json(toPublicEvent(event));
+    if (!req.user) {
+      registrarActividad("vista_publica", { event: event._id });
+      return res.json(toPublicEvent(event));
+    }
     res.json(event);
   } catch (err) {
     console.error("Error al obtener evento:", err);
@@ -257,6 +262,9 @@ router.post("/:id/join", authenticate, async (req, res) => {
 
     // Validar restricción de género
     const user = await User.findById(req.user.id);
+    if (event.restriccionGenero !== "Mixto" && event.restriccionGenero && !user.genero) {
+      return res.status(403).json({ error: "Este evento tiene restricción de género. Indica tu género en tu perfil para unirte." });
+    }
     if (event.restriccionGenero === "Solo hombres" && user.genero !== "Hombre") {
       return res.status(403).json({ error: "Este evento es solo para hombres" });
     }
@@ -283,6 +291,8 @@ router.post("/:id/join", authenticate, async (req, res) => {
     res.json(updatedEvent);
     const io = req.app.get("io");
     io.to(`event-${req.params.id}`).emit("event-updated", updatedEvent);
+
+    registrarActividad("union", { user: req.user.id, event: event._id, via: req.body?.via === "vista_publica" ? "vista_publica" : "" });
 
     // Avisos (después de responder; si fallan, la persona ya quedó inscrita)
     if (event.creator.toString() !== req.user.id) {
@@ -319,6 +329,7 @@ router.post("/:id/leave", authenticate, async (req, res) => {
 
     res.json(updatedEvent);
     req.app.get("io").to(`event-${req.params.id}`).emit("event-updated", updatedEvent);
+    registrarActividad("salida", { user: req.user.id, event: req.params.id });
   } catch (err) {
     console.error("Error al salir del evento:", err);
     res.status(500).json({ error: "Error al salir del evento" });

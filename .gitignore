@@ -21,3 +21,6 @@ index.html
 style.css
 HomePage_V1_from_session.jsx
 Documents/
+# Respaldos de la base de datos (tienen datos personales)
+backend/backups/
+backups/

@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { io } from "socket.io-client";
 import { AuthContext } from "../context/AuthContext";
 import { mapsHref } from "../utils/maps";
+import ReportModal from "../components/ReportModal";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
@@ -39,6 +40,10 @@ export default function EventDetailPage() {
   const [showProfileCard, setShowProfileCard] = useState(false);
   const [profileData, setProfileData] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
+  const [profileUserId, setProfileUserId] = useState(null);
+
+  // Reportar evento o usuario: { tipo, id, nombre } o null
+  const [reporte, setReporte] = useState(null);
 
   useEffect(() => {
     fetchEventDetails();
@@ -68,7 +73,7 @@ export default function EventDetailPage() {
     const myId = auth.user?.id?.toString();
     const yaEsta = (event.creator?._id ?? event.creator)?.toString() === myId
       || event.participants?.some(p => (p._id ?? p)?.toString() === myId);
-    if (!yaEsta) handleJoinEvent();
+    if (!yaEsta) handleJoinEvent("vista_publica");
   }, [auth, event, searchParams, autoJoinDone]);
 
   // Countdown timer
@@ -120,10 +125,13 @@ export default function EventDetailPage() {
     alert(data.error || fallback);
   };
 
-  const handleJoinEvent = async () => {
+  // via = "vista_publica" cuando se une después de ver el evento sin cuenta (para las métricas)
+  const handleJoinEvent = async (via) => {
     try {
       const res = await fetchWithAuth(`${API_URL}/api/events/${id}/join`, {
-        method: "POST"
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(typeof via === "string" ? { via } : {})
       });
       if (!res.ok) return showApiError(res, "No se pudo unir al evento");
       await fetchEventDetails();
@@ -308,6 +316,7 @@ export default function EventDetailPage() {
   const handleViewProfile = async (userId) => {
     if (!userId) return;
     setShowProfileCard(true);
+    setProfileUserId(String(userId));
     setProfileData(null);
     setLoadingProfile(true);
     try {
@@ -947,6 +956,17 @@ export default function EventDetailPage() {
           </button>
         </div>
 
+        {!isPublicView && !isCreator && (
+          <div style={{ textAlign: "right", margin: "-6px 0 14px" }}>
+            <button
+              onClick={() => setReporte({ tipo: "evento", id: event._id, nombre: event.title })}
+              style={{ background: "none", border: "none", cursor: "pointer", fontSize: "13px", color: "#666", textDecoration: "underline", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', padding: 0 }}
+            >
+              Reportar evento
+            </button>
+          </div>
+        )}
+
         {isPublicView ? (
           /* Vista pública: sin nombres, muro ni ítems; invita a iniciar sesión para unirse */
           <div style={styles.section}>
@@ -1486,6 +1506,18 @@ export default function EventDetailPage() {
                     </span>
                   </div>
                 )}
+
+                {profileUserId && profileUserId !== String(auth?.user?.id) && (
+                  <button
+                    onClick={() => {
+                      setShowProfileCard(false);
+                      setReporte({ tipo: "usuario", id: profileUserId, nombre: [profileData.nombre, profileData.apellido].filter(Boolean).join(" ") });
+                    }}
+                    style={{ marginTop: "16px", background: "none", border: "none", cursor: "pointer", fontSize: "13px", color: "#888", textDecoration: "underline", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', padding: 0 }}
+                  >
+                    Reportar usuario
+                  </button>
+                )}
               </>
             ) : (
               <div style={{
@@ -1498,6 +1530,8 @@ export default function EventDetailPage() {
           </div>
         </div>
       )}
+
+      {reporte && <ReportModal tipo={reporte.tipo} id={reporte.id} nombre={reporte.nombre} onClose={() => setReporte(null)} />}
 
       {/* Location popup after joining */}
       {showLocationPopup && event?.location && (

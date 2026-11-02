@@ -8,6 +8,7 @@ import ProfilePage from "./pages/ProfilePage";
 import MyEventsPage from "./pages/MyEventsPage";
 import AdminPage from "./pages/AdminPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+import { TerminosPage, PrivacidadPage } from "./pages/LegalPage";
 
 function ProtectedRoute({ children }) {
   const { auth } = useContext(AuthContext);
@@ -30,6 +31,8 @@ export default function App() {
         <Route path="/my-events" element={<ProtectedRoute><MyEventsPage /></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute><AdminPage /></ProtectedRoute>} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/terminos" element={<TerminosPage />} />
+        <Route path="/privacidad" element={<PrivacidadPage />} />
         <Route path="/" element={<HomePage />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>

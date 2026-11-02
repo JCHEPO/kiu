@@ -1,5 +1,5 @@
 import React, { useContext, useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { AuthContext } from "../context/AuthContext";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
@@ -7,11 +7,14 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 const GENDER_OPTIONS = [
   { label: "Femenino", value: "Mujer" },
   { label: "Masculino", value: "Hombre" },
-  { label: "Otro", value: "LGTBQ+" }
+  { label: "Otro o prefiero no decir", value: "Otro" }
 ];
 
+// "LGTBQ+" es el valor antiguo de "Otro"
+const etiquetaGenero = (g) => (g === "Otro" || g === "LGTBQ+" ? "Otro o prefiero no decir" : g);
+
 export default function ProfilePage() {
-  const { auth, login, fetchWithAuth } = useContext(AuthContext);
+  const { auth, login, logout, fetchWithAuth } = useContext(AuthContext);
   const navigate = useNavigate();
   const [user, setUser] = useState(auth?.user || {});
   const [editing, setEditing] = useState(false);
@@ -19,6 +22,56 @@ export default function ProfilePage() {
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
   const [verificMsg, setVerificMsg] = useState("");
+
+  // Tus datos: descargar y borrar cuenta
+  const [datosMsg, setDatosMsg] = useState("");
+  const [showDelete, setShowDelete] = useState(false);
+  const [deleteInput, setDeleteInput] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
+  const descargarDatos = async () => {
+    setDatosMsg("");
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/auth/me/datos`);
+      if (!res.ok) throw new Error();
+      const blob = new Blob([JSON.stringify(await res.json(), null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `kiu-mis-datos-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setDatosMsg("Listo: se descargó un archivo con tus datos.");
+    } catch {
+      setDatosMsg("No se pudieron descargar tus datos. Intenta de nuevo.");
+    }
+  };
+
+  const borrarCuenta = async () => {
+    setDeleteError("");
+    setDeleting(true);
+    try {
+      const body = user.tienePassword ? { password: deleteInput } : { confirmacion: deleteInput };
+      const res = await fetchWithAuth(`${API_URL}/api/auth/me`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDeleteError(data.error || "No se pudo borrar la cuenta");
+        setDeleting(false);
+        return;
+      }
+      logout(); // cierra la sesión y vuelve al inicio
+    } catch {
+      setDeleteError("Error de conexión");
+      setDeleting(false);
+    }
+  };
 
   useEffect(() => {
     if (!auth?.token) return;
@@ -40,7 +93,7 @@ export default function ProfilePage() {
     setEditForm({
       nombre: user.nombre || "",
       apellido: user.apellido || "",
-      genero: user.genero || "",
+      genero: user.genero === "LGTBQ+" ? "Otro" : (user.genero || ""),
       fechaNacimiento: bdate,
       telefono: user.telefono || ""
     });
@@ -324,7 +377,7 @@ export default function ProfilePage() {
                 </div>
                 <div style={{ marginBottom: "12px" }}>
                   <span style={{ color: "#333", fontWeight: 900 }}>Genero:</span>{" "}
-                  {user.genero || "No especificado"}
+                  {etiquetaGenero(user.genero) || "No especificado"}
                 </div>
                 <div style={{ marginBottom: "12px" }}>
                   <span style={{ color: "#333", fontWeight: 900 }}>Fecha de nacimiento:</span>{" "}
@@ -423,6 +476,71 @@ export default function ProfilePage() {
           <div style={{ ...styles.cardTag, background: "#fff", color: "#145277", marginTop: "20px" }}>Stats</div>
         </div>
       </div>
+
+      {/* Tu cuenta y tus datos */}
+      <div style={{ ...styles.card, marginTop: "24px", maxWidth: "1200px", marginLeft: "auto", marginRight: "auto" }}>
+        <div style={styles.cardTitle}>Tu cuenta y tus datos</div>
+        <div style={{ ...styles.cardText, fontWeight: "normal", marginBottom: "16px" }}>
+          Puedes llevarte una copia de tus datos o borrar tu cuenta cuando quieras. Lee cómo usamos tus datos en la{" "}
+          <Link to="/privacidad">Política de privacidad</Link> y las reglas en los <Link to="/terminos">Términos</Link>.
+        </div>
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          <button style={{ ...styles.actionBtn, background: "#fff", color: "#000" }} onClick={descargarDatos}>
+            Descargar mis datos
+          </button>
+          <button
+            style={{ ...styles.actionBtn, background: "#fff", color: "#c62828", borderColor: "#c62828", boxShadow: "2px 2px 0 #c62828" }}
+            onClick={() => { setShowDelete(true); setDeleteInput(""); setDeleteError(""); }}
+          >
+            Borrar mi cuenta
+          </button>
+        </div>
+        {datosMsg && <div style={{ marginTop: "10px", fontSize: "13px", color: "#555" }}>{datosMsg}</div>}
+      </div>
+
+      {/* Confirmación para borrar la cuenta */}
+      {showDelete && (
+        <div
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: "16px" }}
+          onClick={() => !deleting && setShowDelete(false)}
+        >
+          <div
+            role="dialog"
+            aria-labelledby="borrar-titulo"
+            style={{ background: "#fff", border: "3px solid #000", borderRadius: "16px", boxShadow: "6px 6px 0 #000", padding: "24px", maxWidth: "420px", width: "100%", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div id="borrar-titulo" style={{ fontSize: "22px", fontWeight: 900, marginBottom: "10px" }}>¿Borrar tu cuenta?</div>
+            <div style={{ fontSize: "14px", color: "#333", lineHeight: 1.5, marginBottom: "14px" }}>
+              Se borran tu perfil, tus mensajes, tus inscripciones y los eventos que creaste. A quienes estaban inscritos
+              en tus próximos eventos les avisaremos que se cancelaron. <strong>No se puede deshacer.</strong>
+            </div>
+            <label style={{ display: "block", fontSize: "13px", fontWeight: 700, marginBottom: "6px" }}>
+              {user.tienePassword ? "Escribe tu contraseña para confirmar" : "Escribe BORRAR para confirmar"}
+            </label>
+            <input
+              type={user.tienePassword ? "password" : "text"}
+              value={deleteInput}
+              onChange={(e) => setDeleteInput(e.target.value)}
+              autoFocus
+              style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", border: "2px solid #333", borderRadius: "8px", fontSize: "15px", marginBottom: "10px" }}
+            />
+            {deleteError && <div style={{ color: "#c62828", fontSize: "13px", marginBottom: "10px" }}>{deleteError}</div>}
+            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+              <button style={{ ...styles.actionBtn, background: "#fff", color: "#000" }} onClick={() => setShowDelete(false)} disabled={deleting}>
+                Cancelar
+              </button>
+              <button
+                style={{ ...styles.actionBtn, background: "#c62828", color: "#fff", borderColor: "#c62828", opacity: deleteInput ? 1 : 0.5 }}
+                onClick={borrarCuenta}
+                disabled={!deleteInput || deleting}
+              >
+                {deleting ? "Borrando..." : "Borrar mi cuenta"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useContext, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useGoogleLogin } from "@react-oauth/google";
 import { io } from "socket.io-client";
 import { AuthContext } from "../context/AuthContext";
 import { REGIONES } from "../config/regiones";
+import { LEGAL } from "../config/legal";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 const FB_APP_ID = import.meta.env.VITE_FACEBOOK_APP_ID || "";
@@ -47,7 +48,7 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
   const genderOptions = [
     { label: "Femenino", value: "Mujer" },
     { label: "Masculino", value: "Hombre" },
-    { label: "Otro", value: "LGTBQ+" }
+    { label: "Otro o prefiero no decir", value: "Otro" }
   ];
 
   const switchView = (newView) => {
@@ -176,6 +177,10 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
       return;
     }
     const isoDate = `${year}-${month.padStart(2,"0")}-${day.padStart(2,"0")}`;
+    if (!form.aceptaTerminos) {
+      setError(`Para crear tu cuenta acepta los Términos y la Política de privacidad`);
+      return;
+    }
     try {
       const res = await fetch(`${API_URL}/api/auth/register`, {
         method: "POST",
@@ -220,7 +225,8 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${oauthData.token}`
         },
-        body: JSON.stringify({ nombre: form.nickname.trim() })
+        // Al continuar después de Google o Facebook se aceptan los términos (ver texto bajo el botón)
+        body: JSON.stringify({ nombre: form.nickname.trim(), aceptaTerminos: true })
       });
       const data = await res.json();
       if (data.error) {
@@ -527,6 +533,19 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
               value={form.password || ""}
               onChange={e => setForm({ ...form, password: e.target.value })}
             />
+            <label style={{ display: "flex", gap: "8px", alignItems: "flex-start", textAlign: "left", fontSize: "13px", lineHeight: 1.4, color: "#333", margin: "4px 0 12px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={!!form.aceptaTerminos}
+                onChange={e => setForm({ ...form, aceptaTerminos: e.target.checked })}
+                style={{ marginTop: "2px", width: "16px", height: "16px", flexShrink: 0 }}
+              />
+              <span>
+                Acepto los <Link to="/terminos" target="_blank" rel="noopener">Términos</Link> y la{" "}
+                <Link to="/privacidad" target="_blank" rel="noopener">Política de privacidad</Link>, y tengo{" "}
+                {LEGAL.edadMinima} años o más.
+              </span>
+            </label>
             <button style={modalStyles.button} onClick={handleRegister}>
               Registrarse
             </button>
@@ -618,6 +637,11 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
             <button style={modalStyles.button} onClick={handleSaveNickname}>
               Continuar
             </button>
+            <div style={{ fontSize: "12px", color: "#666", lineHeight: 1.4, marginTop: "10px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+              Al continuar aceptas los <Link to="/terminos" target="_blank" rel="noopener">Términos</Link> y la{" "}
+              <Link to="/privacidad" target="_blank" rel="noopener">Política de privacidad</Link>, y confirmas que tienes{" "}
+              {LEGAL.edadMinima} años o más.
+            </div>
           </>
         ) : (
           /* Welcome view after registration */
@@ -1772,6 +1796,13 @@ export default function HomePage() {
           )}
         </div>
       </div>
+
+      {/* Pie: términos y privacidad */}
+      <footer style={{ textAlign: "center", padding: "24px 16px 32px", fontSize: "13px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', color: "#333" }}>
+        <Link to="/terminos" style={{ color: "#333" }}>Términos</Link>
+        {" · "}
+        <Link to="/privacidad" style={{ color: "#333" }}>Privacidad</Link>
+      </footer>
     </div>
   );
 }

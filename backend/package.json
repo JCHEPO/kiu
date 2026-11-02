@@ -1,12 +1,14 @@
 {
-  "name": "petu-backend",
+  "name": "kiu-backend",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node src/server.js"
+    "dev": "node src/server.js",
+    "respaldo": "node scripts/respaldo.js",
+    "restaurar": "node scripts/restaurar.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
