@@ -25,9 +25,10 @@ const UserSchema = new mongoose.Schema({
 
 // Virtual para nombre completo
 UserSchema.virtual("name").get(function() {
+  // Ojo: en eventos se cargan usuarios sin el email (no se expone a otros), así que puede no estar
   return this.nombre && this.apellido
     ? `${this.nombre} ${this.apellido}`
-    : this.nombre || this.email.split("@")[0];
+    : this.nombre || (this.email ? this.email.split("@")[0] : "");
 });
 
 export default mongoose.model("User", UserSchema);

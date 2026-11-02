@@ -18,6 +18,9 @@ export function AuthProvider({ children }) {
   }, [auth]);
 
   const login = ({ token, user }) => {
+    // Guardar de inmediato: después del login se recarga o se navega a otra página,
+    // y no hay que depender de que el useEffect alcance a correr antes.
+    try { localStorage.setItem("petu_auth", JSON.stringify({ token, user })); } catch (e) {}
     setAuth({ token, user });
   };
 

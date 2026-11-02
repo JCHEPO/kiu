@@ -7,9 +7,9 @@ import User from "../models/User.js";
 import Event from "../models/Event.js";
 import { authenticate } from "../middleware/auth.middleware.js";
 import { sendEmail } from "../utils/email.js";
+import { JWT_SECRET, JWT_EXPIRES_IN } from "../config.js";
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
 // --- Rate limiters (por IP) ---
 const authLimiter = rateLimit({
@@ -78,7 +78,7 @@ router.post("/login", authLimiter, async (req, res) => {
 
     if (user.activo === false) return res.status(403).json({ error: "Cuenta suspendida" });
 
-    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "1d" });
+    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
     res.json({ token, user: { id: user._id, email: user.email, nombre: user.nombre, apellido: user.apellido, genero: user.genero, fechaNacimiento: user.fechaNacimiento, rol: user.rol } });
   } catch (err) {
     console.error("Login error:", err);
@@ -88,7 +88,7 @@ router.post("/login", authLimiter, async (req, res) => {
 
 // Helper to build the user response object
 const buildUserResponse = (user) => ({
-  token: jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "1d" }),
+  token: jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN }),
   user: { id: user._id, email: user.email, nombre: user.nombre, apellido: user.apellido, genero: user.genero, fechaNacimiento: user.fechaNacimiento, rol: user.rol }
 });
 

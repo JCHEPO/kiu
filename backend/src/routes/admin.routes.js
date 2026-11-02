@@ -2,6 +2,7 @@ import express from "express";
 import { authenticate, authorize } from "../middleware/auth.middleware.js";
 import User from "../models/User.js";
 import Event from "../models/Event.js";
+import { notify, formatFechaHora } from "../utils/notify.js";
 
 const router = express.Router();
 const adminOnly = (req, res, next) => authenticate(req, res, () => authorize(["admin"])(req, res, next));
@@ -63,8 +64,22 @@ router.get("/events", adminOnly, async (req, res) => {
 // DELETE /api/admin/events/:id
 router.delete("/events/:id", adminOnly, async (req, res) => {
   try {
-    await Event.findByIdAndDelete(req.params.id);
+    const event = await Event.findByIdAndDelete(req.params.id);
     res.json({ message: "Evento eliminado" });
+
+    // Avisar a todos los inscritos (incluido el creador) si el evento todavía no ocurría
+    if (event && new Date(event.date).getTime() > Date.now()) {
+      const cuando = formatFechaHora(event.date);
+      notify(req.app.get("io"), {
+        userIds: [event.creator, ...event.participants],
+        event: null,
+        message: `Se canceló "${event.title}" (${cuando})`,
+        email: {
+          subject: `Cancelado: ${event.title}`,
+          text: `"${event.title}", que era el ${formatFechaHora(event.date, " a las ")} en ${event.location}, fue cancelado por el equipo de Kiu.`
+        }
+      });
+    }
   } catch (err) {
     res.status(500).json({ error: "Error al eliminar evento" });
   }

@@ -5,6 +5,7 @@ const EventSchema = new mongoose.Schema({
   date: { type: Date, required: true },
   description: { type: String, default: "" },
   location: { type: String, required: true },
+  mapsUrl: { type: String, default: "" }, // link de Google Maps del lugar (opcional, para "Otro lugar")
   minParticipants: { type: Number },
   maxParticipants: { type: Number, required: true },
   category: String,
@@ -24,7 +25,12 @@ const EventSchema = new mongoose.Schema({
     name: { type: String, required: true },
     claimedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }
   }],
+  // Avisos ya enviados (para no repetirlos)
+  confirmedAt: { type: Date, default: null },     // se llegó al mínimo de participantes
+  reminderSentAt: { type: Date, default: null },  // recordatorio antes del evento
   createdAt: { type: Date, default: Date.now }
 });
+
+EventSchema.index({ date: 1 });
 
 export default mongoose.model("Event", EventSchema);

@@ -1,6 +1,7 @@
 import express from "express";
 import { authenticate, authorize } from "../middleware/auth.middleware.js";
 import Cancha from "../models/Cancha.js";
+import { esLinkDeMaps } from "../utils/maps.js";
 
 const router = express.Router();
 
@@ -23,14 +24,31 @@ router.get("/", async (req, res) => {
   }
 });
 
-// GET /api/canchas/resolve-url - Resolver link corto de Google Maps y extraer coordenadas
-router.get("/resolve-url", async (req, res) => {
+// Solo links de Google Maps (ver utils/maps.js): esta ruta hace que el servidor visite la URL,
+// así que no puede aceptar cualquier dirección (alguien podría usarla para llegar a servicios internos del host).
+// GET /api/canchas/resolve-url - Resolver link corto de Google Maps y extraer coordenadas (solo admin)
+router.get("/resolve-url", authenticate, authorize(["admin"]), async (req, res) => {
   try {
     const { url } = req.query;
-    if (!url) return res.status(400).json({ error: "URL requerida" });
+    if (typeof url !== "string" || !esLinkDeMaps(url)) {
+      return res.status(400).json({ error: "Solo se aceptan links de Google Maps (https)" });
+    }
 
-    const response = await fetch(url, { redirect: "follow" });
-    const finalUrl = response.url;
+    // Seguimos las redirecciones a mano para revisar cada salto: un link corto no puede llevar fuera de Google.
+    let finalUrl = url;
+    for (let hop = 0; hop < 5; hop++) {
+      const response = await fetch(finalUrl, { redirect: "manual", signal: AbortSignal.timeout(5000) });
+      const location = response.headers.get("location");
+      if (response.status >= 300 && response.status < 400 && location) {
+        const nextUrl = new URL(location, finalUrl).toString();
+        if (!esLinkDeMaps(nextUrl)) {
+          return res.status(400).json({ error: "El link redirige fuera de Google Maps" });
+        }
+        finalUrl = nextUrl;
+        continue;
+      }
+      break;
+    }
 
     let lat = null, lng = null;
     const m = finalUrl.match(/@(-?\d+\.?\d+),(-?\d+\.?\d+)/)

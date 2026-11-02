@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useContext, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthContext } from "../context/AuthContext";
+import { comunasActivas } from "../config/regiones";
+import { esLinkDeMaps } from "../utils/maps";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
@@ -35,6 +37,8 @@ export default function CreateEventPage() {
     restriccionGenero: "", // "Solo hombres", "Solo mujeres", "Mixto"
     lugar: "",
     lugarOption: "",
+    lugarComuna: "",   // solo para "Otro lugar"
+    lugarMapsUrl: "",  // solo para "Otro lugar" (opcional)
     dateOption: "", // "hoy", "mañana", "otra"
     rawDate: "", // yyyy-mm-dd (input type="date")
     displayDate: "02 de Febrero",
@@ -509,6 +513,26 @@ export default function CreateEventPage() {
     }));
   };
 
+  // "Otro lugar": un sitio que no está en la lista de lugares cargados por el admin
+  const elegirOtroLugar = () => {
+    setEventData((prev) => ({
+      ...prev,
+      lugarOption: "Otro",
+      lugar: "",
+      dateOption: "",
+      rawDate: "",
+      displayDate: "02 de Febrero",
+      costoLabel: prev.gratis ? "Gratis" : (prev.costoNumber ? `$${prev.costoNumber} por persona` : "Valor pendiente")
+    }));
+  };
+
+  const actualizarOtroLugar = (cambios) => {
+    const next = { ...eventData, ...cambios };
+    setEventData((prev) => ({ ...prev, ...cambios }));
+    // Se avanza a la fecha cuando hay nombre y comuna
+    if (next.lugar.trim() && next.lugarComuna) setStep((s) => Math.max(s, 5));
+  };
+
   // Enviar al backend
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -535,6 +559,16 @@ export default function CreateEventPage() {
     const subcategory = eventData.personas === "custom"
       ? eventData.customCount.toString()
       : (eventData.maxCount ? (eventData.minCount ? `${eventData.minCount}-${eventData.maxCount}` : eventData.maxCount.toString()) : eventData.personas || "");
+
+    const esOtroLugar = eventData.lugarOption === "Otro";
+    if (esOtroLugar) {
+      if (!eventData.lugar.trim()) { alert("Escribe el nombre del lugar"); return; }
+      if (!eventData.lugarComuna) { alert("Elige la comuna del lugar"); return; }
+      if (eventData.lugarMapsUrl && !esLinkDeMaps(eventData.lugarMapsUrl)) {
+        alert("El link del lugar tiene que ser de Google Maps (empieza con https://maps.app.goo.gl/ o https://www.google.com/maps/)");
+        return;
+      }
+    }
 
     // Convertir fecha+hora a ISO para Mongo (Date)
     let dateIso;
@@ -568,9 +602,12 @@ export default function CreateEventPage() {
       restriccionGenero: eventData.restriccionGenero || "Mixto",
       date: dateIso,
       time: eventData.hora,
-      location: eventData.lugar,
+      location: eventData.lugar.trim(),
+      mapsUrl: esOtroLugar ? eventData.lugarMapsUrl : "",
       cost: eventData.gratis ? 0 : eventData.costoNumber || 0,
-      comuna: "",
+      // La comuna sale del lugar elegido (los lugares cargados por el admin siempre la tienen);
+      // sin esto el filtro "Dónde" del inicio no encuentra el evento.
+      comuna: esOtroLugar ? eventData.lugarComuna : (lugares.find(l => l.nombre === eventData.lugarOption)?.comuna || ""),
       items: needsBall ? [{ name: "Pelota" }] : []
     };
 
@@ -1355,27 +1392,53 @@ export default function CreateEventPage() {
                     })}
                   </div>
                 ) : (
-                  <div style={{ ...styles.options, marginTop: 15 }}>
-                    <input
-                      type="text"
-                      style={styles.valorInput}
-                      placeholder="Ingresar otra ubicación..."
-                      value={eventData.lugarOption === "Otro" ? eventData.lugar : ""}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setEventData((prev) => ({
-                          ...prev,
-                          lugar: value,
-                          lugarOption: value ? "Otro" : ""
-                        }));
-                        if (value) {
-                          setStep((prev) => Math.max(prev, 5));
-                        }
-                      }}
-                    />
+                  <div style={{ color: "#999", fontSize: "13px", textAlign: "center", fontFamily: '"Patrick Hand", system-ui, cursive' }}>
+                    No hay lugares registrados todavía
                   </div>
                 )
               )}
+
+              {/* Otro lugar: cualquier sitio que no esté en la lista */}
+              <div style={{ marginTop: 15, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+                {eventData.lugarOption !== "Otro" ? (
+                  <button type="button" style={styles.sketchBtn(false, false, !!eventData.lugarOption)} onClick={elegirOtroLugar}>
+                    + Otro lugar
+                  </button>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      style={styles.valorInput}
+                      placeholder="Nombre del lugar (ej: Parque Ecuador)"
+                      maxLength={100}
+                      value={eventData.lugar}
+                      onChange={(e) => actualizarOtroLugar({ lugar: e.target.value })}
+                    />
+                    <select
+                      style={styles.valorInput}
+                      value={eventData.lugarComuna}
+                      onChange={(e) => actualizarOtroLugar({ lugarComuna: e.target.value })}
+                    >
+                      <option value="" disabled>Comuna</option>
+                      {comunasActivas().map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <input
+                      type="url"
+                      style={styles.valorInput}
+                      placeholder="Link de Google Maps (opcional)"
+                      value={eventData.lugarMapsUrl}
+                      onChange={(e) => actualizarOtroLugar({ lugarMapsUrl: e.target.value.trim() })}
+                    />
+                    <button
+                      type="button"
+                      style={{ background: "none", border: "none", cursor: "pointer", fontSize: "13px", color: "#666", fontFamily: '"Patrick Hand", system-ui, cursive' }}
+                      onClick={() => setEventData((prev) => ({ ...prev, lugar: "", lugarOption: "", lugarComuna: "", lugarMapsUrl: "" }))}
+                    >
+                      Volver a la lista
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           )}
 

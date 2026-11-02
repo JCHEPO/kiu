@@ -1,7 +1,6 @@
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
-
-const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
+import { JWT_SECRET } from "../config.js";
 
 export const authenticate = async (req, res, next) => {
 	const auth = req.headers.authorization;
@@ -23,6 +22,23 @@ export const authenticate = async (req, res, next) => {
 	} catch (err) {
 		return res.status(401).json({ error: "Token inválido" });
 	}
+};
+
+// Como authenticate, pero sin bloquear: si hay un token válido de un usuario activo deja req.user;
+// si no hay token (o no sirve), sigue como visitante anónimo. Para rutas públicas que muestran más
+// información a quien inició sesión.
+export const optionalAuth = async (req, res, next) => {
+	const auth = req.headers.authorization;
+	const parts = auth ? auth.split(" ") : [];
+	if (parts.length !== 2 || parts[0] !== "Bearer") return next();
+	try {
+		const payload = jwt.verify(parts[1], JWT_SECRET);
+		const user = await User.findById(payload.id).select("activo");
+		if (user && user.activo !== false) req.user = payload;
+	} catch {
+		// token inválido o vencido → anónimo
+	}
+	next();
 };
 
 export const authorize = (roles = []) => {

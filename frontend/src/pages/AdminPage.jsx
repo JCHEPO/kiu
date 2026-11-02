@@ -146,7 +146,7 @@ export default function AdminPage() {
   const resolveGoogleLink = async (q) => {
     let lat = null, lng = null, name = "";
     try {
-      const r = await fetch(`${API_URL}/api/canchas/resolve-url?url=${encodeURIComponent(q)}`);
+      const r = await fetchWithAuth(`${API_URL}/api/canchas/resolve-url?url=${encodeURIComponent(q)}`);
       const d = await r.json();
       if (d.lat && d.lng) { lat = d.lat; lng = d.lng; }
       else if (d.url) {

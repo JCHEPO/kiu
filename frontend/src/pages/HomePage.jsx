@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useGoogleLogin } from "@react-oauth/google";
 import { io } from "socket.io-client";
 import { AuthContext } from "../context/AuthContext";
+import { REGIONES } from "../config/regiones";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 const FB_APP_ID = import.meta.env.VITE_FACEBOOK_APP_ID || "";
@@ -149,6 +150,11 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
 
   const handleRegister = async () => {
     setError("");
+    // El nombre es lo que ven los demás en los eventos (el email nunca se muestra)
+    if (!form.nombre?.trim()) {
+      setError("Ingresa tu nombre");
+      return;
+    }
     if (!form.genero) {
       setError("Selecciona tu genero");
       return;
@@ -801,13 +807,22 @@ function EventPostItCard({ event, isLoggedIn, sizeFactor: externalScale }) {
   );
 }
 
-function getDefaultGenderFilter(user) {
-  const genero = user?.genero;
-  if (genero === "Hombre") return "Solo hombres";
-  if (genero === "Mujer") return "Solo mujeres";
-  if (genero === "LGTBQ+") return "Mixto";
-  return null;
+// ¿El usuario puede unirse a este evento según su restricción de género?
+// Misma regla que POST /api/events/:id/join en el backend. Sin sesión o sin género: se muestra todo.
+function puedeUnirsePorGenero(ev, user) {
+  const restriccion = ev.restriccionGenero || "Mixto";
+  if (restriccion === "Mixto" || !user?.genero) return true;
+  if (restriccion === "Solo hombres") return user.genero === "Hombre";
+  if (restriccion === "Solo mujeres") return user.genero === "Mujer";
+  return true;
 }
+
+// Solo aceptamos rutas internas en ?next= (evita redirigir a otro sitio con un link armado)
+function safeNext(raw) {
+  if (typeof raw !== "string" || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) return null;
+  return raw;
+}
+
 
 export default function HomePage() {
   const { auth, logout, fetchWithAuth } = useContext(AuthContext);
@@ -820,7 +835,7 @@ export default function HomePage() {
   const [filterCuando, setFilterCuando] = useState(null);
   const [filterTipo, setFilterTipo] = useState(null);
   const [filterPersonas, setFilterPersonas] = useState(null);
-  const [filterGenero, setFilterGenero] = useState(() => getDefaultGenderFilter(auth?.user));
+  const [filterGenero, setFilterGenero] = useState(null);
   const [openFilter, setOpenFilter] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
   const [selectedRegion, setSelectedRegion] = useState("Gran Concepción");
@@ -831,6 +846,13 @@ export default function HomePage() {
   const [showNotifications, setShowNotifications] = useState(false);
   const notifRef = useRef(null);
   const navigate = useNavigate();
+  // Ruta a la que volver después de iniciar sesión (link compartido o tarjeta tocada sin sesión)
+  const [pendingNext, setPendingNext] = useState(() => safeNext(new URLSearchParams(window.location.search).get("next")));
+
+  // Si llegó con ?next= y sin sesión (p.ej. abrió un link de evento), abrir el login de inmediato
+  useEffect(() => {
+    if (pendingNext && !auth) setShowLoginModal(true);
+  }, []);
 
   const heroTexts = [
     "Hagamos algo. Descubre cientos de eventos.",
@@ -849,7 +871,7 @@ export default function HomePage() {
   const filterCategories = {
     comuna: {
       label: "Dónde",
-      options: ["Concepción", "Talcahuano", "Chiguayante", "San Pedro", "Hualpén", "Penco", "Tomé", "Coronel"]
+      options: (REGIONES.find(r => r.nombre === selectedRegion) || REGIONES[0]).comunas
     },
     cuando: {
       label: "Cuándo",
@@ -871,7 +893,7 @@ export default function HomePage() {
   const filterStateMap = { comuna: filterComuna, cuando: filterCuando, tipo: filterTipo, personas: filterPersonas };
   const filterSetterMap = { comuna: setFilterComuna, cuando: setFilterCuando, tipo: setFilterTipo, personas: setFilterPersonas };
 
-  const regionOptions = ["Gran Concepción", "Chillán", "Región Metropolitana"];
+  const regionOptions = REGIONES;
 
   // Mobile detection
   useEffect(() => {
@@ -934,11 +956,12 @@ export default function HomePage() {
   const userName = auth?.user?.nombre || "Usuario";
   const menuRef = useRef(null);
 
-  // Available events: not past, not full
+  // Available events: not past, not full, and the user can join them (gender restriction)
   const availableEvents = events.filter((ev) => {
     if (ev.date && new Date(ev.date) < new Date()) return false;
     const total = (ev.participants?.length || 0) + (ev.manualParticipants?.length || 0);
     if (total >= ev.maxParticipants) return false;
+    if (!puedeUnirsePorGenero(ev, auth?.user)) return false;
     return true;
   });
 
@@ -1026,17 +1049,26 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    setFilterGenero(getDefaultGenderFilter(auth?.user));
+    setFilterGenero(null);
     fetchEvents();
   }, [auth]);
 
   const fetchEvents = async () => {
     try {
-      const url = `${API_URL}/api/events`;
-      const res = await fetch(url);
-      const data = await res.json();
-      // El backend ahora responde { events, total, page, pages }
-      setEvents(Array.isArray(data) ? data : (data.events || []));
+      // El backend responde paginado { events, total, page, pages }: traemos todas las páginas
+      // (tope de seguridad: 10 páginas de 100 = 1.000 eventos futuros)
+      const all = [];
+      let page = 1;
+      let pages = 1;
+      do {
+        const res = await fetch(`${API_URL}/api/events?page=${page}&limit=100`);
+        const data = await res.json();
+        if (Array.isArray(data)) { all.push(...data); break; }
+        all.push(...(data.events || []));
+        pages = data.pages || 1;
+        page++;
+      } while (page <= pages && page <= 10);
+      setEvents(all);
     } catch (error) {
       console.error("Error fetching events:", error);
     } finally {
@@ -1045,16 +1077,17 @@ export default function HomePage() {
   };
 
   const handleCardClick = (eventId) => {
-    if (isLoggedIn) {
-      navigate(`/event/${eventId}`);
-    } else {
-      setShowLoginModal(true);
-    }
+    // El detalle del evento es público: sin sesión se ve la versión resumida y se pide login para unirse
+    navigate(`/event/${eventId}`);
   };
 
   const handleLoginSuccess = () => {
     setShowLoginModal(false);
-    window.location.reload();
+    if (pendingNext) {
+      window.location.href = pendingNext;
+    } else {
+      window.location.reload();
+    }
   };
 
   const styles = {
@@ -1302,7 +1335,7 @@ export default function HomePage() {
       {/* Login Modal */}
       {showLoginModal && (
         <LoginModal
-          onClose={() => setShowLoginModal(false)}
+          onClose={() => { setShowLoginModal(false); setPendingNext(null); }}
           onLoginSuccess={handleLoginSuccess}
           onNavigateProfile={() => {
             setShowLoginModal(false);
@@ -1351,24 +1384,31 @@ export default function HomePage() {
             }}>
               {regionOptions.map((region) => (
                 <button
-                  key={region}
-                  onClick={() => { setSelectedRegion(region); setShowRegionPicker(false); }}
+                  key={region.nombre}
+                  disabled={!region.activa}
+                  onClick={() => {
+                    if (!region.activa) return;
+                    setSelectedRegion(region.nombre);
+                    setFilterComuna(null); // las comunas cambian con la región
+                    setShowRegionPicker(false);
+                  }}
                   style={{
                     display: "block",
                     width: "100%",
                     padding: "14px 20px",
-                    background: selectedRegion === region ? "#f0f0f0" : "#fff",
+                    background: selectedRegion === region.nombre ? "#f0f0f0" : "#fff",
                     border: "none",
                     borderBottom: "1px solid #eee",
                     fontSize: "15px",
-                    fontWeight: selectedRegion === region ? 800 : 600,
+                    fontWeight: selectedRegion === region.nombre ? 800 : 600,
                     fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
-                    cursor: "pointer",
+                    cursor: region.activa ? "pointer" : "default",
                     textAlign: "left",
-                    color: "#000"
+                    color: region.activa ? "#000" : "#999"
                   }}
                 >
-                  {region}
+                  {region.nombre}
+                  {!region.activa && <span style={{ fontSize: "12px", fontWeight: 600, marginLeft: "8px" }}>Próximamente</span>}
                 </button>
               ))}
             </div>
@@ -1680,7 +1720,7 @@ export default function HomePage() {
               <div style={{ textAlign: "center", marginTop: "4px" }}>
                 <button
                   style={{ background: "none", border: "none", cursor: "pointer", fontSize: "13px", color: "#666", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', textDecoration: "underline" }}
-                  onClick={() => { setFilterComuna(null); setFilterCuando(null); setFilterTipo(null); setFilterPersonas(null); setFilterGenero(getDefaultGenderFilter(auth?.user)); setOpenFilter(null); }}
+                  onClick={() => { setFilterComuna(null); setFilterCuando(null); setFilterTipo(null); setFilterPersonas(null); setFilterGenero(null); setOpenFilter(null); }}
                 >
                   Limpiar filtros
                 </button>

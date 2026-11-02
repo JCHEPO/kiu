@@ -1,5 +1,5 @@
 import React, { useContext } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthContext } from "./context/AuthContext";
 import CreateEventPage from "./pages/CreateEventPage";
 import HomePage from "./pages/HomePage";
@@ -11,7 +11,12 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 
 function ProtectedRoute({ children }) {
   const { auth } = useContext(AuthContext);
-  return auth ? children : <Navigate to="/" />;
+  const location = useLocation();
+  if (auth) return children;
+  // Sin sesión: ir al inicio recordando a dónde quería ir (p.ej. un link de evento compartido).
+  // HomePage abre el login y, al terminar, vuelve a esta ruta.
+  const next = encodeURIComponent(location.pathname + location.search);
+  return <Navigate to={`/?next=${next}`} replace />;
 }
 
 export default function App() {
@@ -19,7 +24,8 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/create-event" element={<ProtectedRoute><CreateEventPage /></ProtectedRoute>} />
-        <Route path="/event/:id" element={<ProtectedRoute><EventDetailPage /></ProtectedRoute>} />
+        {/* Público: quien abre un link compartido ve el evento; se pide login solo para unirse */}
+        <Route path="/event/:id" element={<EventDetailPage />} />
         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
         <Route path="/my-events" element={<ProtectedRoute><MyEventsPage /></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute><AdminPage /></ProtectedRoute>} />

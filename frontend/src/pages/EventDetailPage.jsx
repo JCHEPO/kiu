@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useContext } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { io } from "socket.io-client";
 import { AuthContext } from "../context/AuthContext";
+import { mapsHref } from "../utils/maps";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
@@ -9,6 +10,7 @@ export default function EventDetailPage() {
   const { id } = useParams();
   const { auth, fetchWithAuth } = useContext(AuthContext);
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [event, setEvent] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -42,9 +44,10 @@ export default function EventDetailPage() {
     fetchEventDetails();
   }, [id]);
 
-  // Real-time updates via Socket.IO
+  // Real-time updates via Socket.IO (solo con sesión: el servidor no manda datos del evento a anónimos)
   useEffect(() => {
-    const socket = io(API_URL);
+    if (!auth?.token) return;
+    const socket = io(API_URL, { auth: { token: auth.token } });
     socket.emit("join-event", id);
     socket.on("event-updated", (updatedEvent) => {
       setEvent(updatedEvent);
@@ -53,7 +56,20 @@ export default function EventDetailPage() {
       socket.emit("leave-event", id);
       socket.disconnect();
     };
-  }, [id]);
+  }, [id, auth?.token]);
+
+  // Volvió del login con ?unirse=1 (tocó "Unirme" sin sesión): inscribirlo de una vez
+  const [autoJoinDone, setAutoJoinDone] = useState(false);
+  useEffect(() => {
+    if (autoJoinDone || !auth || !event || event.isPublicView) return;
+    if (searchParams.get("unirse") !== "1") return;
+    setAutoJoinDone(true);
+    setSearchParams({}, { replace: true });
+    const myId = auth.user?.id?.toString();
+    const yaEsta = (event.creator?._id ?? event.creator)?.toString() === myId
+      || event.participants?.some(p => (p._id ?? p)?.toString() === myId);
+    if (!yaEsta) handleJoinEvent();
+  }, [auth, event, searchParams, autoJoinDone]);
 
   // Countdown timer
   useEffect(() => {
@@ -219,7 +235,7 @@ export default function EventDetailPage() {
       const res = await fetchWithAuth(`${API_URL}/api/events/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ location: cancha.nombre })
+        body: JSON.stringify({ location: cancha.nombre, comuna: cancha.comuna || "" })
       });
       if (!res.ok) throw new Error();
       setEditingLocation(false);
@@ -255,7 +271,8 @@ export default function EventDetailPage() {
   const handleEditDate = () => {
     if (!canEditDate()) return;
     const d = new Date(event.date);
-    const dateStr = d.toISOString().split("T")[0];
+    // Fecha local (toISOString daría la fecha en UTC: un evento a las 22:00 en Chile aparecería al día siguiente)
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const timeStr = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
     setEditDate(dateStr);
     setEditTime(timeStr);
@@ -265,7 +282,11 @@ export default function EventDetailPage() {
   const handleSaveDate = async () => {
     if (!editDate || !editTime) return;
     try {
-      const newDate = `${editDate}T${editTime}:00`;
+      // Convertir a ISO (UTC) en el navegador, que conoce la zona horaria del usuario.
+      // Si se manda "2026-11-05T18:00:00" sin zona, el servidor la interpreta en su propia zona (UTC en producción).
+      const parsed = new Date(`${editDate}T${editTime}:00`);
+      if (isNaN(parsed.getTime())) { alert("Fecha u hora inválida"); return; }
+      const newDate = parsed.toISOString();
       const res = await fetchWithAuth(`${API_URL}/api/events/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -373,7 +394,8 @@ export default function EventDetailPage() {
   const isParticipant = event.participants?.some(p =>
     (p._id === auth?.user?.id) || (p === auth?.user?.id)
   );
-  const isFull = event.participants?.length >= event.maxParticipants;
+  // Sin sesión el backend manda la vista pública (sin nombres, muro ni ítems)
+  const isPublicView = !auth || !!event.isPublicView;
 
   const getCardGradient = () => {
     if (event.category === "Partido") {
@@ -423,8 +445,15 @@ export default function EventDetailPage() {
   };
 
   const titleParts = getTitleParts();
-  const currentParticipants = (event.participants?.length || 0) + (event.manualParticipants?.length || 0);
+  const currentParticipants = event.participantCount ?? ((event.participants?.length || 0) + (event.manualParticipants?.length || 0));
+  // El cupo incluye a los participantes agregados a mano (igual que en el backend)
+  const isFull = currentParticipants >= event.maxParticipants;
   const isMobile = typeof window !== "undefined" && window.innerWidth < 600;
+
+  // Sin sesión: ir al login y volver a este evento ya inscrito
+  const goToLoginToJoin = () => {
+    navigate(`/?next=${encodeURIComponent(`/event/${id}?unirse=1`)}`);
+  };
 
   const styles = {
     wrapper: {
@@ -726,7 +755,7 @@ export default function EventDetailPage() {
               }}>
                 {currentParticipants >= event.minParticipants
                   ? "✓ Confirmado"
-                  : `Faltan ${event.minParticipants - currentParticipants} para confirmar`}
+                  : `${event.minParticipants - currentParticipants === 1 ? "Falta" : "Faltan"} ${event.minParticipants - currentParticipants} para confirmar`}
               </div>
             )}
           </div>
@@ -808,7 +837,7 @@ export default function EventDetailPage() {
                   {event.location}
                   {event.location && (
                     <a
-                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.location)}`}
+                      href={mapsHref(event)}
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{ fontSize: "13px", color: "#1a73e8", textDecoration: "none", fontWeight: 600, fontFamily: '"Patrick Hand", system-ui, cursive', whiteSpace: "nowrap" }}
@@ -881,10 +910,10 @@ export default function EventDetailPage() {
               ) : (
                 <button
                   style={{...styles.actionButton, ...(isFull && styles.disabledButton)}}
-                  onClick={handleJoinEvent}
+                  onClick={isPublicView ? goToLoginToJoin : handleJoinEvent}
                   disabled={isFull}
                 >
-                  {isFull ? "Evento Lleno" : "Unirse al Evento"}
+                  {isFull ? "Evento Lleno" : isPublicView ? "Unirme" : "Unirse al Evento"}
                 </button>
               )}
             </>
@@ -918,7 +947,27 @@ export default function EventDetailPage() {
           </button>
         </div>
 
-        {isMobile ? (
+        {isPublicView ? (
+          /* Vista pública: sin nombres, muro ni ítems; invita a iniciar sesión para unirse */
+          <div style={styles.section}>
+            <h3 style={styles.sectionTitle}>¿Quiénes van?</h3>
+            <p style={{ fontSize: "16px", lineHeight: 1.5, margin: "0 0 8px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+              {event.creator?.nombre ? `Organiza ${event.creator.nombre}. ` : ""}
+              {isFull
+                ? `Ya están los ${event.maxParticipants} cupos ocupados.`
+                : `Van ${currentParticipants} de ${event.maxParticipants}.`}
+              {event.restriccionGenero && event.restriccionGenero !== "Mixto" ? ` Es ${event.restriccionGenero.toLowerCase()}.` : ""}
+            </p>
+            <p style={{ fontSize: "15px", color: "#555", margin: "0 0 16px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
+              Inicia sesión para unirte, ver quiénes van, escribir en el muro y anotarte en lo que hay que llevar.
+            </p>
+            {!isFull && (
+              <button style={styles.actionButton} onClick={goToLoginToJoin}>
+                Unirme
+              </button>
+            )}
+          </div>
+        ) : isMobile ? (
           <>
             {/* MOBILE BENTO: Que Llevamos first */}
             <div style={{ marginBottom: "12px" }}>
@@ -1491,7 +1540,7 @@ export default function EventDetailPage() {
               {event.location}
             </div>
             <a
-              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.location)}`}
+              href={mapsHref(event)}
               target="_blank"
               rel="noopener noreferrer"
               style={{
