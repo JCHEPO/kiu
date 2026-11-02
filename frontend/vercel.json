@@ -1,1 +1,16 @@
-{ "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }] }
+{
+  "rewrites": [
+    {
+      "source": "/event/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(WhatsApp|facebookexternalhit|Facebot|Twitterbot|TelegramBot|Slackbot|Discordbot|LinkedInBot).*"
+        }
+      ],
+      "destination": "https://kiu-backend.onrender.com/share/event/:id"
+    },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
