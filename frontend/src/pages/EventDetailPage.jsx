@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useContext } from "react";
+import React, { useState, useEffect, useContext, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { io } from "socket.io-client";
 import { AuthContext } from "../context/AuthContext";
 import { mapsHref } from "../utils/maps";
 import ReportModal from "../components/ReportModal";
+import { registrarApertura, visitaDe, linkDeEvento, origenValido, PAGINA_DE_ENTRADA } from "../utils/seguimiento";
+import { descargarIcs, linkGoogleCalendar } from "../utils/calendario";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+import { API_URL } from "../config/api";
 
 export default function EventDetailPage() {
   const { id } = useParams();
@@ -44,6 +46,30 @@ export default function EventDetailPage() {
 
   // Reportar evento o usuario: { tipo, id, nombre } o null
   const [reporte, setReporte] = useState(null);
+
+  // Asistencia (solo la recibe el organizador). Se guarda aparte porque las actualizaciones en
+  // tiempo real del evento no la traen.
+  const [asistencia, setAsistencia] = useState(null);       // lo guardado: [{ user, estado }]
+  const [marcas, setMarcas] = useState({});                 // borrador: { userId: "llego" | "no_llego" }
+  const [noSeJugo, setNoSeJugo] = useState(false);
+  const [guardandoAsistencia, setGuardandoAsistencia] = useState(false);
+  const [asistenciaMsg, setAsistenciaMsg] = useState("");
+
+  // Link compartido: anotar la apertura (métrica del piloto) y sacar ?o= de la barra de direcciones,
+  // para que si alguien copia esa URL no herede el origen.
+  const aperturaHecha = useRef(null);
+  useEffect(() => {
+    if (!event || event.error || aperturaHecha.current === id) return;
+    aperturaHecha.current = id;
+    const origen = origenValido(searchParams.get("o"));
+    const entroDirecto = PAGINA_DE_ENTRADA === `/event/${id}` && searchParams.get("unirse") !== "1";
+    if (origen || entroDirecto) registrarApertura(fetchWithAuth, id, origen || "directo");
+    if (searchParams.has("o")) {
+      const p = new URLSearchParams(searchParams);
+      p.delete("o");
+      setSearchParams(p, { replace: true });
+    }
+  }, [event, id]);
 
   useEffect(() => {
     fetchEventDetails();
@@ -109,6 +135,11 @@ export default function EventDetailPage() {
       if (!res.ok) throw new Error("Error al cargar evento");
       const data = await res.json();
       setEvent(data);
+      if (Array.isArray(data.asistencia)) {
+        setAsistencia(data.asistencia);
+        setMarcas(Object.fromEntries(data.asistencia.map(a => [String(a.user), a.estado])));
+        setNoSeJugo(!!data.noSeJugo);
+      }
     } catch (error) {
       console.error("Error fetching event:", error);
       alert("Error al cargar evento");
@@ -131,7 +162,8 @@ export default function EventDetailPage() {
       const res = await fetchWithAuth(`${API_URL}/api/events/${id}/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(typeof via === "string" ? { via } : {})
+        // visita: si llegó por un link compartido (métrica de links que terminan en inscripción)
+        body: JSON.stringify({ ...(typeof via === "string" ? { via } : {}), visita: visitaDe(id) })
       });
       if (!res.ok) return showApiError(res, "No se pudo unir al evento");
       await fetchEventDetails();
@@ -143,6 +175,14 @@ export default function EventDetailPage() {
   };
 
   const handleLeaveEvent = async () => {
+    // En cancha reservable, salir a menos de 6 h suma un strike: avisar antes
+    const horasQueFaltan = (new Date(event.date).getTime() - Date.now()) / (60 * 60 * 1000);
+    if (event.lugarTipo === "reservable" && horasQueFaltan < 6) {
+      const ok = window.confirm("Faltan menos de 6 horas y la cancha está reservada. Si sales ahora recibes un strike (con 3 strikes la cuenta se suspende unos días).\n\n¿Salir igual?");
+      if (!ok) return;
+    } else if (!window.confirm("¿Salir del evento?")) {
+      return;
+    }
     try {
       const res = await fetchWithAuth(`${API_URL}/api/events/${id}/leave`, {
         method: "POST"
@@ -153,6 +193,66 @@ export default function EventDetailPage() {
       console.error("Error leaving event:", error);
       alert("Error de conexión al salir del evento");
     }
+  };
+
+  // Guardar la asistencia (solo organizador)
+  const guardarAsistencia = async () => {
+    setGuardandoAsistencia(true);
+    setAsistenciaMsg("");
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/events/${id}/asistencia`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          marcas: Object.entries(marcas).map(([user, estado]) => ({ user, estado })),
+          noSeJugo
+        })
+      });
+      if (!res.ok) return showApiError(res, "No se pudo guardar la asistencia");
+      const data = await res.json();
+      setEvent(data);
+      setAsistencia(data.asistencia || []);
+      setAsistenciaMsg("Asistencia guardada");
+    } catch {
+      alert("Error de conexión al guardar la asistencia");
+    } finally {
+      setGuardandoAsistencia(false);
+    }
+  };
+
+  // Texto y link para compartir. El link lleva el origen (?o=) para medir de dónde llega la gente.
+  const textoParaCompartir = () => {
+    const fecha = event.date ? `${formatDate(event.date)} a las ${formatTime(event.date)}` : "";
+    const quedan = event.maxParticipants - currentParticipants;
+    return [
+      quedan > 0 ? `${event.title} · ${quedan === 1 ? "falta 1" : `faltan ${quedan}`}` : event.title,
+      fecha,
+      event.comuna ? `${event.location}, ${event.comuna}` : event.location,
+      event.cost ? `$${event.cost}` : "Gratis"
+    ].filter(Boolean).join("\n");
+  };
+
+  const compartir = async () => {
+    const texto = textoParaCompartir();
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: event.title, text: texto, url: linkDeEvento(id, "compartir") });
+      } catch (e) {
+        // la persona cerró el menú de compartir
+      }
+    } else {
+      try {
+        await navigator.clipboard.writeText(`${texto}\n${linkDeEvento(id, "copia")}`);
+        alert("Link copiado al portapapeles");
+      } catch {
+        window.prompt("Copia este link:", linkDeEvento(id, "copia"));
+      }
+    }
+  };
+
+  const compartirPorWhatsApp = () => {
+    const texto = `${textoParaCompartir()}\n${linkDeEvento(id, "wa")}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank", "noopener,noreferrer");
   };
 
   const handleDeleteEvent = async () => {
@@ -243,7 +343,7 @@ export default function EventDetailPage() {
       const res = await fetchWithAuth(`${API_URL}/api/events/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ location: cancha.nombre, comuna: cancha.comuna || "" })
+        body: JSON.stringify({ location: cancha.nombre, comuna: cancha.comuna || "", canchaId: cancha._id })
       });
       if (!res.ok) throw new Error();
       setEditingLocation(false);
@@ -457,6 +557,11 @@ export default function EventDetailPage() {
   const currentParticipants = event.participantCount ?? ((event.participants?.length || 0) + (event.manualParticipants?.length || 0));
   // El cupo incluye a los participantes agregados a mano (igual que en el backend)
   const isFull = currentParticipants >= event.maxParticipants;
+  // Asistencia: se marca desde la hora del evento y hasta 7 días después
+  const inicioMs = new Date(event.date).getTime();
+  const yaEmpezo = Date.now() >= inicioMs;
+  const asistenciaCerrada = Date.now() > inicioMs + 7 * 24 * 60 * 60 * 1000;
+  const participantesParaMarcar = (event.participants || []).filter(p => String(p._id ?? p) !== creatorId);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 600;
 
   // Sin sesión: ir al login y volver a este evento ya inscrito
@@ -860,6 +965,21 @@ export default function EventDetailPage() {
                 </div>
               )}
               <div>{event.cost ? `$${event.cost} por persona` : "Gratis"}</div>
+              {event.lugarTipo === "gratuita" && (
+                <div style={{ fontSize: "13px", color: "#7a4b00", marginTop: "4px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+                  Cancha de uso libre: no se reserva y al llegar puede estar ocupada.
+                </div>
+              )}
+              {(isParticipant || isCreator) && !yaEmpezo && (
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "6px", fontSize: "13px", fontFamily: '"Patrick Hand", system-ui, cursive' }}>
+                  <button onClick={() => descargarIcs(event)} style={{ background: "none", border: "none", padding: 0, color: "#1a73e8", fontWeight: 600, cursor: "pointer", font: "inherit" }}>
+                    📅 Agregar al calendario
+                  </button>
+                  <a href={linkGoogleCalendar(event)} target="_blank" rel="noopener noreferrer" style={{ color: "#1a73e8", fontWeight: 600, textDecoration: "none" }}>
+                    Google Calendar
+                  </a>
+                </div>
+              )}
             </div>
             <div style={{ textAlign: "right" }}>
               {editingDate ? (
@@ -927,32 +1047,11 @@ export default function EventDetailPage() {
               )}
             </>
           )}
-          <button
-            style={styles.actionButton}
-            onClick={async () => {
-              const url = window.location.href;
-              const fecha = event.date ? `${formatDate(event.date)} a las ${formatTime(event.date)}` : "";
-              const texto = [
-                event.title,
-                fecha,
-                event.location,
-                event.cost ? `$${event.cost}` : "Gratis",
-                event.description
-              ].filter(Boolean).join("\n");
-
-              if (navigator.share) {
-                try {
-                  await navigator.share({ title: event.title, text: texto, url });
-                } catch (e) {
-                  // user cancelled share
-                }
-              } else {
-                navigator.clipboard.writeText(`${texto}\n${url}`);
-                alert("Link copiado al portapapeles");
-              }
-            }}
-          >
+          <button style={styles.actionButton} onClick={compartir}>
             Compartir
+          </button>
+          <button style={{ ...styles.actionButton, background: "#25D366", color: "#000" }} onClick={compartirPorWhatsApp}>
+            WhatsApp
           </button>
         </div>
 
@@ -964,6 +1063,60 @@ export default function EventDetailPage() {
             >
               Reportar evento
             </button>
+          </div>
+        )}
+
+        {isCreator && asistencia !== null && yaEmpezo && !asistenciaCerrada && (
+          <div style={{ ...styles.section, marginBottom: "14px" }}>
+            <h3 style={styles.sectionTitle}>¿Quiénes llegaron?</h3>
+            <p style={{ fontSize: "14px", lineHeight: 1.5, margin: "0 0 12px", color: "#444", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+              Marca a cada persona. Quien queda en "No llegó" recibe un strike (puede apelar desde su perfil). Si no se jugó, nadie recibe strike.
+            </p>
+            {participantesParaMarcar.length === 0 ? (
+              <p style={{ fontSize: "14px", color: "#777", margin: "0 0 12px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+                No hay otras personas inscritas con cuenta.
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "12px" }}>
+                {participantesParaMarcar.map(p => {
+                  const pid = String(p._id ?? p);
+                  const estado = marcas[pid];
+                  const btn = (valor, texto, color) => (
+                    <button
+                      type="button"
+                      disabled={noSeJugo}
+                      onClick={() => setMarcas(prev => ({ ...prev, [pid]: valor }))}
+                      style={{
+                        padding: "6px 12px", borderRadius: "8px", border: "2px solid #333", cursor: noSeJugo ? "default" : "pointer",
+                        background: estado === valor ? color : "#fff", fontWeight: estado === valor ? 800 : 500,
+                        fontSize: "13px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', opacity: noSeJugo ? 0.5 : 1
+                      }}
+                    >
+                      {texto}
+                    </button>
+                  );
+                  return (
+                    <div key={pid} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", background: "#fff", border: "2px solid #ddd", borderRadius: "10px", padding: "8px 10px" }}>
+                      <span style={{ fontSize: "15px", fontWeight: 700, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>{p.name || p.nombre || "Participante"}</span>
+                      <span style={{ display: "flex", gap: "6px" }}>
+                        {btn("llego", "Llegó", "#c8f7c5")}
+                        {btn("no_llego", "No llegó", "#ffd0d0")}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", marginBottom: "12px", cursor: "pointer", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+              <input type="checkbox" checked={noSeJugo} onChange={e => setNoSeJugo(e.target.checked)} />
+              No se jugó (la cancha estaba ocupada o se suspendió)
+            </label>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+              <button style={styles.actionButton} onClick={guardarAsistencia} disabled={guardandoAsistencia}>
+                {guardandoAsistencia ? "Guardando..." : "Guardar asistencia"}
+              </button>
+              {asistenciaMsg && <span style={{ fontSize: "14px", color: "#2e7d32", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>✓ {asistenciaMsg}</span>}
+            </div>
           </div>
         )}
 
@@ -1587,6 +1740,22 @@ export default function EventDetailPage() {
             >
               Abrir en Maps
             </a>
+            <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
+              <button
+                onClick={() => descargarIcs(event)}
+                style={{ flex: 1, background: "#fff", color: "#000", border: "2px solid #000", borderRadius: "10px", padding: "12px 10px", fontSize: isMobile ? "14px" : "15px", fontWeight: "bold", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', cursor: "pointer" }}
+              >
+                📅 Agregar al calendario
+              </button>
+              <a
+                href={linkGoogleCalendar(event)}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ flex: 1, background: "#fff", color: "#000", border: "2px solid #000", borderRadius: "10px", padding: "12px 10px", fontSize: isMobile ? "14px" : "15px", fontWeight: "bold", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', textDecoration: "none", textAlign: "center" }}
+              >
+                Google Calendar
+              </a>
+            </div>
             <button
               onClick={() => setShowLocationPopup(false)}
               style={{

@@ -9,6 +9,10 @@ import { authenticate } from "../middleware/auth.middleware.js";
 import { sendEmail } from "../utils/email.js";
 import { JWT_SECRET, JWT_EXPIRES_IN, TERMINOS_VERSION, EDAD_MINIMA, GENEROS_VALIDOS, normalizarGenero } from "../config.js";
 import { registrarActividad } from "../utils/actividad.js";
+import { vincularRegistro } from "../utils/seguimiento.js";
+import Strike from "../models/Strike.js";
+import { notify } from "../utils/notify.js";
+import { MAX_ACTIVOS, DIAS_VIGENCIA, filtroActivos } from "../utils/strikes.js";
 import { eliminarCuenta, exportarDatos } from "../utils/cuentas.js";
 
 const router = express.Router();
@@ -89,6 +93,8 @@ router.post("/register", registerLimiter, async (req, res) => {
       genero, fechaNacimiento, aceptaTerminosAt: new Date(), terminosVersion: TERMINOS_VERSION
     });
     registrarActividad("registro", { user: nuevo._id });
+    // Si llegó por un link compartido, queda asociado (métrica de links que terminan en inscripción)
+    await vincularRegistro(req.body.visita, nuevo._id);
 
     res.json({ message: "Usuario creado" });
   } catch (err) {
@@ -178,6 +184,7 @@ router.post("/google", authLimiter, async (req, res) => {
         apellido: family_name || ""
       });
       registrarActividad("registro", { user: user._id });
+      await vincularRegistro(req.body.visita, user._id);
     }
 
     if (user.activo === false) return res.status(403).json({ error: "Cuenta suspendida" });
@@ -240,6 +247,7 @@ router.post("/facebook", authLimiter, async (req, res) => {
         apellido: last_name || ""
       });
       registrarActividad("registro", { user: user._id });
+      await vincularRegistro(req.body.visita, user._id);
     }
 
     if (user.activo === false) return res.status(403).json({ error: "Cuenta suspendida" });
@@ -279,7 +287,7 @@ router.get("/me", authenticate, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
-    res.json({ user: { id: user._id, email: user.email, nombre: user.nombre, apellido: user.apellido, genero: user.genero, fechaNacimiento: user.fechaNacimiento, telefono: user.telefono, verificado: user.verificado, solicitaVerificacion: user.solicitaVerificacion, rol: user.rol, tienePassword: !!user.password } });
+    res.json({ user: { id: user._id, email: user.email, nombre: user.nombre, apellido: user.apellido, genero: user.genero, fechaNacimiento: user.fechaNacimiento, telefono: user.telefono, verificado: user.verificado, solicitaVerificacion: user.solicitaVerificacion, rol: user.rol, tienePassword: !!user.password, strikes: user.strikes || 0, suspendidoHasta: user.suspendidoHasta && user.suspendidoHasta > new Date() ? user.suspendidoHasta : null } });
   } catch (err) {
     res.status(500).json({ error: "Error al obtener datos" });
   }
@@ -355,6 +363,89 @@ router.post("/me/verificacion", authenticate, async (req, res) => {
     res.json({ message: "Solicitud enviada" });
   } catch (err) {
     res.status(500).json({ error: "Error al enviar solicitud" });
+  }
+});
+
+// GET /api/auth/me/calendario - código del link de calendario personal (lo crea si no existe)
+// POST /api/auth/me/calendario/renovar - cambia el código (el link anterior deja de funcionar)
+const nuevoTokenCalendario = () => crypto.randomBytes(24).toString("hex");
+router.get("/me/calendario", authenticate, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("calendarioToken");
+    if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+    if (!user.calendarioToken) { user.calendarioToken = nuevoTokenCalendario(); await user.save(); }
+    res.json({ token: user.calendarioToken });
+  } catch (err) {
+    res.status(500).json({ error: "Error al obtener el calendario" });
+  }
+});
+router.post("/me/calendario/renovar", authenticate, async (req, res) => {
+  try {
+    const token = nuevoTokenCalendario();
+    await User.updateOne({ _id: req.user.id }, { $set: { calendarioToken: token } });
+    res.json({ token });
+  } catch (err) {
+    res.status(500).json({ error: "Error al cambiar el link" });
+  }
+});
+
+// GET /api/auth/me/strikes - mis strikes de los últimos 180 días (activos y pasados) y las reglas
+router.get("/me/strikes", authenticate, async (req, res) => {
+  try {
+    const desde = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+    const [strikes, activos] = await Promise.all([
+      Strike.find({ user: req.user.id, creadoAt: { $gte: desde } }).sort({ creadoAt: -1 }).lean(),
+      Strike.countDocuments(filtroActivos(req.user.id))
+    ]);
+    const ahora = Date.now();
+    res.json({
+      activos,
+      maximo: MAX_ACTIVOS,
+      diasVigencia: DIAS_VIGENCIA,
+      strikes: strikes.map((k) => ({
+        _id: k._id,
+        tipo: k.tipo,
+        evento: k.eventTitulo,
+        eventId: k.event,
+        fecha: k.creadoAt,
+        vence: k.venceAt,
+        activo: !k.anulado && new Date(k.venceAt).getTime() > ahora && k.apelacion?.estado !== "aceptada",
+        anulado: k.anulado,
+        apelacion: k.apelacion?.estado || "ninguna"
+      }))
+    });
+  } catch (err) {
+    console.error("Error al obtener strikes:", err);
+    res.status(500).json({ error: "Error al obtener tus strikes" });
+  }
+});
+
+// POST /api/auth/me/strikes/:id/apelar  { texto } - apelar un strike (una vez por strike). Lo revisa un admin.
+router.post("/me/strikes/:id/apelar", authenticate, async (req, res) => {
+  try {
+    const texto = typeof req.body?.texto === "string" ? req.body.texto.trim() : "";
+    if (!texto) return res.status(400).json({ error: "Cuéntanos qué pasó" });
+    if (texto.length > 500) return res.status(400).json({ error: "El texto es demasiado largo (máx 500 caracteres)" });
+    if (!/^[a-f0-9]{24}$/i.test(req.params.id)) return res.status(404).json({ error: "Strike no encontrado" });
+    const strike = await Strike.findOne({ _id: req.params.id, user: req.user.id });
+    if (!strike) return res.status(404).json({ error: "Strike no encontrado" });
+    if (strike.anulado) return res.status(400).json({ error: "Este strike ya fue anulado" });
+    if (strike.apelacion?.estado && strike.apelacion.estado !== "ninguna") {
+      return res.status(400).json({ error: "Ya apelaste este strike" });
+    }
+    strike.apelacion = { texto, at: new Date(), estado: "pendiente", resueltaAt: null };
+    await strike.save();
+    res.json({ message: "Apelación enviada. La revisaremos pronto." });
+
+    const admins = await User.find({ rol: "admin" }).select("_id");
+    notify(req.app.get("io"), {
+      userIds: admins.map((a) => a._id),
+      event: null,
+      message: `Nueva apelación de strike (${strike.tipo}${strike.eventTitulo ? `: "${strike.eventTitulo}"` : ""})`
+    });
+  } catch (err) {
+    console.error("Error al apelar strike:", err);
+    res.status(500).json({ error: "Error al enviar la apelación" });
   }
 });
 

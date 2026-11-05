@@ -3,22 +3,16 @@ import { useNavigate } from "react-router-dom";
 import { AuthContext } from "../context/AuthContext";
 import { comunasActivas } from "../config/regiones";
 import { esLinkDeMaps } from "../utils/maps";
+import { TIPOS_ACTIVOS, DEPORTES_ACTIVOS, FORMATOS, TIPO_CANCHA, CON_PELOTA } from "../config/actividades";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+import { API_URL } from "../config/api";
 
 export default function CreateEventPage() {
   const { fetchWithAuth } = useContext(AuthContext);
   const navigate = useNavigate();
 
-  // Mapa de opciones de personas por deporte
-  const personasOptions = {
-    Futbol: ["5vs5", "7vs7", "11vs11"],
-    Voleyball: ["2vs2", "4vs4", "6vs6"],
-    Handball: ["5vs5"],
-    Tenis: ["1vs1", "2vs2"],
-    Padel: ["1vs1", "2vs2"],
-    Basket: ["1vs1", "2vs2", "5vs5"]
-  };
+  // Mapa de opciones de personas por deporte (ver config/actividades.js)
+  const personasOptions = FORMATOS;
 
   // Opciones para Juegos de mesa
   const socialOptions = ["Cartas", "Monopoly", "Puzzle", "Catan", "Otro"];
@@ -533,6 +527,12 @@ export default function CreateEventPage() {
     if (next.lugar.trim() && next.lugarComuna) setStep((s) => Math.max(s, 5));
   };
 
+  // Canchas que sirven para el deporte elegido (las "multiuso" y las sin tipo sirven para todos)
+  const tipoCancha = TIPO_CANCHA[eventData.deporte];
+  const canchasDelDeporte = !tipoCancha
+    ? lugares
+    : lugares.filter(l => !l.tipo?.length || l.tipo.includes(tipoCancha) || l.tipo.includes("multiuso"));
+
   // Enviar al backend
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -586,8 +586,17 @@ export default function CreateEventPage() {
     }
 
     // Auto-add pelota item for ball sports
-    const ballSports = ["Futbol", "Voleyball", "Handball", "Basket"];
-    const needsBall = eventData.tipo === "Partido de futbol" && ballSports.includes(eventData.deporte);
+    const needsBall = eventData.tipo === "Partido de futbol" && CON_PELOTA.includes(eventData.deporte);
+
+    // Partidos: mínimo para jugar (por defecto, el formato completo). Sirve para avisar "confirmado"
+    // y para la meta de eventos que llegan al mínimo.
+    const esPartido = eventData.tipo === "Partido de futbol";
+    const minimoPartido = esPartido ? (parseInt(eventData.minCount) || maxParticipants) : undefined;
+    if (esPartido && (minimoPartido < 2 || minimoPartido > maxParticipants)) {
+      alert(`El mínimo para jugar tiene que estar entre 2 y ${maxParticipants}`);
+      return;
+    }
+    const lugarElegido = esOtroLugar ? null : lugares.find(l => l.nombre === eventData.lugarOption);
 
     const payload = {
       title,
@@ -597,7 +606,7 @@ export default function CreateEventPage() {
       tags: [],
       invitees: [],
       mode: "direct",
-      minParticipants: eventData.minCount ? parseInt(eventData.minCount) : undefined,
+      minParticipants: esPartido ? minimoPartido : (eventData.minCount ? parseInt(eventData.minCount) : undefined),
       maxParticipants,
       restriccionGenero: eventData.restriccionGenero || "Mixto",
       date: dateIso,
@@ -607,7 +616,9 @@ export default function CreateEventPage() {
       cost: eventData.gratis ? 0 : eventData.costoNumber || 0,
       // La comuna sale del lugar elegido (los lugares cargados por el admin siempre la tienen);
       // sin esto el filtro "Dónde" del inicio no encuentra el evento.
-      comuna: esOtroLugar ? eventData.lugarComuna : (lugares.find(l => l.nombre === eventData.lugarOption)?.comuna || ""),
+      comuna: esOtroLugar ? eventData.lugarComuna : (lugarElegido?.comuna || ""),
+      // Lugar del catálogo: el backend guarda si es gratuito o reservable (afecta los strikes)
+      canchaId: lugarElegido?._id,
       items: needsBall ? [{ name: "Pelota" }] : []
     };
 
@@ -950,7 +961,7 @@ export default function CreateEventPage() {
               Que hacemos ?
             </h2>
             <div style={styles.options}>
-              {["Partido de futbol", "Juegos de mesa", "Evento"].map((val) => {
+              {TIPOS_ACTIVOS.map((val) => {
                 const selected = eventData.tipo === val;
                 const someSelected = !!eventData.tipo;
                 const dimmed = someSelected && !selected;
@@ -978,7 +989,7 @@ export default function CreateEventPage() {
             >
               <h2 style={styles.questionTitle}>¿Qué deporte?</h2>
               <div style={styles.options}>
-                {["Futbol", "Voleyball", "Handball", "Tenis", "Padel", "Basket"].map((val) => {
+                {DEPORTES_ACTIVOS.map((val) => {
                   const selected = eventData.deporte === val;
                   const someSelected = !!eventData.deporte;
                   const dimmed = someSelected && !selected;
@@ -1179,6 +1190,24 @@ export default function CreateEventPage() {
                   </div>
                 )}
               </div>
+              {/* Partidos: mínimo para jugar (por defecto, el formato completo) */}
+              {eventData.tipo === "Partido de futbol" && (eventData.personas || eventData.customCount) && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", marginTop: "14px", flexWrap: "wrap" }}>
+                  <label htmlFor="minimo-partido" style={{ fontSize: "15px", fontWeight: "bold", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', color: "#333" }}>
+                    ¿Con cuántos se juega como mínimo?
+                  </label>
+                  <input
+                    id="minimo-partido"
+                    type="number"
+                    min={2}
+                    max={maxParticipants}
+                    style={{ ...styles.valorInput, minWidth: "80px", maxWidth: "100px" }}
+                    placeholder={String(maxParticipants)}
+                    value={eventData.minCount || ""}
+                    onChange={e => setEventData(prev => ({ ...prev, minCount: e.target.value ? parseInt(e.target.value) : "" }))}
+                  />
+                </div>
+              )}
               </div>
             )}
 
@@ -1270,11 +1299,11 @@ export default function CreateEventPage() {
                         onChange={(e) => handleOptionClick("lugar", e.target.value)}
                       >
                         <option value="" disabled>Elegir cancha</option>
-                        {lugares.filter(l => l.gratuita !== false).map((lugar) => (
+                        {canchasDelDeporte.filter(l => l.gratuita !== false).map((lugar) => (
                           <option key={lugar._id} value={lugar.nombre}>{lugar.nombre} - {lugar.comuna}</option>
                         ))}
                       </select>
-                      {lugares.filter(l => l.gratuita !== false).length === 0 && (
+                      {canchasDelDeporte.filter(l => l.gratuita !== false).length === 0 && (
                         <div style={{ textAlign: "center", padding: "8px", color: "#999", fontSize: "13px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
                           No hay canchas gratuitas
                         </div>
@@ -1315,11 +1344,11 @@ export default function CreateEventPage() {
                         onChange={(e) => handleOptionClick("lugar", e.target.value)}
                       >
                         <option value="" disabled>Elegir cancha</option>
-                        {lugares.filter(l => l.gratuita === false).map((lugar) => (
+                        {canchasDelDeporte.filter(l => l.gratuita === false).map((lugar) => (
                           <option key={lugar._id} value={lugar.nombre}>{lugar.nombre} - {lugar.comuna}</option>
                         ))}
                       </select>
-                      {lugares.filter(l => l.gratuita === false).length === 0 && (
+                      {canchasDelDeporte.filter(l => l.gratuita === false).length === 0 && (
                         <div style={{ textAlign: "center", padding: "8px", color: "#999", fontSize: "13px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
                           No hay canchas pagadas
                         </div>
@@ -1397,6 +1426,17 @@ export default function CreateEventPage() {
                   </div>
                 )
               )}
+
+              {/* Cancha gratuita: no se reserva y puede estar ocupada */}
+              {(() => {
+                const sel = lugares.find(l => l.nombre === eventData.lugarOption);
+                if (eventData.tipo !== "Partido de futbol" || !sel || sel.gratuita === false) return null;
+                return (
+                  <div role="alert" style={{ margin: "14px auto 0", maxWidth: "460px", background: "#fff8e1", border: "3px solid #333", boxShadow: "3px 3px 0 #000", padding: "12px 14px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', fontSize: isMobile ? "15px" : "16px", lineHeight: 1.35 }}>
+                    <strong>Ojo: esta cancha es de uso libre.</strong> No se puede reservar, así que al llegar puede estar ocupada. Acuerden un plan B con el grupo.
+                  </div>
+                );
+              })()}
 
               {/* Otro lugar: cualquier sitio que no esté en la lista */}
               <div style={{ marginTop: 15, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>

@@ -3,6 +3,8 @@ import Event from "../models/Event.js";
 import Notification from "../models/Notification.js";
 import Report from "../models/Report.js";
 import Activity from "../models/Activity.js";
+import LinkVisit from "../models/LinkVisit.js";
+import Strike from "../models/Strike.js";
 import { notify, formatFechaHora } from "./notify.js";
 
 /**
@@ -13,7 +15,8 @@ import { notify, formatFechaHora } from "./notify.js";
  * - En eventos de otros: se le quita de los participantes, se borran sus mensajes del muro y se
  *   liberan los ítems que se había anotado a llevar.
  * - Sus notificaciones se borran.
- * - Reportes que envió y su actividad (métricas) quedan sin su identidad (user/reporter en null).
+ * - Se borran sus marcas de asistencia y sus strikes.
+ * - Reportes que envió, su actividad y los links que abrió (métricas) quedan sin su identidad (user/reporter en null).
  *   Los reportes en su contra se conservan para la moderación.
  */
 export async function eliminarCuenta(userId, io, { motivo = "usuario" } = {}) {
@@ -46,6 +49,9 @@ export async function eliminarCuenta(userId, io, { motivo = "usuario" } = {}) {
   await Notification.deleteMany({ user: id });
   await Report.updateMany({ reporter: id }, { $set: { reporter: null } });
   await Activity.updateMany({ user: id }, { $set: { user: null } });
+  await LinkVisit.updateMany({ user: id }, { $set: { user: null } });
+  await Event.updateMany({ "asistencia.user": id }, { $pull: { asistencia: { user: id } } });
+  await Strike.deleteMany({ user: id });
 
   const borrado = await User.findByIdAndDelete(id);
   console.log(`Cuenta eliminada (${motivo}): ${id}, ${creados.length} eventos propios borrados`);
@@ -64,17 +70,19 @@ export async function exportarDatos(userId) {
     id: u._id, nombre: u.nombre, apellido: u.apellido, email: u.email, genero: u.genero,
     fechaNacimiento: u.fechaNacimiento, telefono: u.telefono, fechaRegistro: u.fechaRegistro,
     verificado: !!u.verificado, rol: u.rol, strikes: u.strikes || 0, activo: u.activo !== false,
+    suspendidoHasta: u.suspendidoHasta || null,
     conectadoConGoogle: !!u.googleId, conectadoConFacebook: !!u.facebookId,
     aceptaTerminosAt: u.aceptaTerminosAt, terminosVersion: u.terminosVersion
   };
 
   const resumenEvento = (e) => ({ id: e._id, titulo: e.title, fecha: e.date, lugar: e.location, comuna: e.comuna });
-  const [creados, inscrito, conMensajes, notificaciones, reportes] = await Promise.all([
+  const [creados, inscrito, conMensajes, notificaciones, reportes, strikes] = await Promise.all([
     Event.find({ creator: id }).lean(),
     Event.find({ participants: id, creator: { $ne: id } }).lean(),
     Event.find({ "messages.sender": id }).select("title messages").lean(),
     Notification.find({ user: id }).sort({ createdAt: -1 }).lean(),
-    Report.find({ reporter: id }).select("tipo motivo detalle estado createdAt targetTitulo").lean()
+    Report.find({ reporter: id }).select("tipo motivo detalle estado createdAt targetTitulo").lean(),
+    Strike.find({ user: id }).sort({ creadoAt: -1 }).lean()
   ]);
 
   return {
@@ -86,6 +94,10 @@ export async function exportarDatos(userId) {
       (e.messages || []).filter((m) => String(m.sender) === id).map((m) => ({ evento: e.title, texto: m.text, fecha: m.createdAt }))
     ),
     notificaciones: notificaciones.map((n) => ({ mensaje: n.message, leida: n.read, fecha: n.createdAt })),
-    reportesEnviados: reportes
+    reportesEnviados: reportes,
+    strikes: strikes.map((k) => ({
+      tipo: k.tipo, evento: k.eventTitulo, fecha: k.creadoAt, vence: k.venceAt, anulado: k.anulado,
+      apelacion: k.apelacion?.estado !== "ninguna" ? { texto: k.apelacion.texto, estado: k.apelacion.estado } : null
+    }))
   };
 }

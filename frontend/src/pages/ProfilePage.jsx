@@ -2,7 +2,7 @@ import React, { useContext, useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { AuthContext } from "../context/AuthContext";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+import { API_URL } from "../config/api";
 
 const GENDER_OPTIONS = [
   { label: "Femenino", value: "Mujer" },
@@ -22,6 +22,48 @@ export default function ProfilePage() {
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
   const [verificMsg, setVerificMsg] = useState("");
+
+  // Calendario automático (suscripción al link .ics personal)
+  const [calToken, setCalToken] = useState(null);
+  const [calMsg, setCalMsg] = useState("");
+  const calUrl = calToken ? `${API_URL}/api/calendario/${calToken}.ics` : "";
+  const pedirCalendario = async (renovar = false) => {
+    setCalMsg("");
+    const res = await fetchWithAuth(`${API_URL}/api/auth/me/calendario${renovar ? "/renovar" : ""}`, { method: renovar ? "POST" : "GET" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { setCalMsg(data.error || "No se pudo obtener el link"); return null; }
+    setCalToken(data.token);
+    if (renovar) setCalMsg("Listo: el link anterior dejó de funcionar. Vuelve a suscribirte con el nuevo.");
+    return data.token;
+  };
+
+  // Strikes: los míos y apelar
+  const [misStrikes, setMisStrikes] = useState(null);
+  const [apelando, setApelando] = useState(null); // id del strike que se está apelando
+  const [apelacionTexto, setApelacionTexto] = useState("");
+  const [apelacionMsg, setApelacionMsg] = useState("");
+
+  const cargarStrikes = () => {
+    fetchWithAuth(`${API_URL}/api/auth/me/strikes`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => setMisStrikes(data))
+      .catch(() => setMisStrikes(null));
+  };
+
+  const enviarApelacion = async (strikeId) => {
+    setApelacionMsg("");
+    const res = await fetchWithAuth(`${API_URL}/api/auth/me/strikes/${strikeId}/apelar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texto: apelacionTexto })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { setApelacionMsg(data.error || "No se pudo enviar la apelación"); return; }
+    setApelando(null);
+    setApelacionTexto("");
+    setApelacionMsg(data.message || "Apelación enviada");
+    cargarStrikes();
+  };
 
   // Tus datos: descargar y borrar cuenta
   const [datosMsg, setDatosMsg] = useState("");
@@ -84,6 +126,7 @@ export default function ProfilePage() {
         }
       })
       .catch(() => {});
+    cargarStrikes();
   }, []);
 
   const startEditing = () => {
@@ -423,6 +466,104 @@ export default function ProfilePage() {
             <div style={{ ...styles.cardTag, background: "#FF8C00", marginTop: "20px" }}>Perfil</div>
           )}
         </div>
+
+        {/* Calendario automático */}
+        <div style={{ ...styles.card, background: "#fff" }}>
+          <div>
+            <div style={styles.cardTitle}>Calendario</div>
+            <div style={styles.cardText}>
+              Suscribe tu calendario y los eventos a los que te unes aparecen solos (y se borran si se cancelan). Es opcional.
+            </div>
+            {!calToken ? (
+              <button style={{ ...styles.actionBtn, background: "#000", color: "#fff", marginTop: "12px" }} onClick={() => pedirCalendario()}>
+                📅 Activar calendario automático
+              </button>
+            ) : (
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+                <a style={{ ...styles.actionBtn, background: "#000", color: "#fff", textDecoration: "none" }} href={calUrl.replace(/^https?:/, "webcal:")}>
+                  iPhone / Mac
+                </a>
+                <a style={{ ...styles.actionBtn, background: "#fff", color: "#000", textDecoration: "none" }} target="_blank" rel="noopener noreferrer"
+                  href={`https://calendar.google.com/calendar/r?cid=${encodeURIComponent(calUrl.replace(/^https?:/, "webcal:"))}`}>
+                  Google Calendar
+                </a>
+                <button style={{ ...styles.actionBtn, background: "#fff", color: "#000" }} onClick={async () => {
+                  try { await navigator.clipboard.writeText(calUrl); setCalMsg("Link copiado"); } catch { window.prompt("Copia este link:", calUrl); }
+                }}>
+                  Copiar link
+                </button>
+                <button style={{ ...styles.actionBtn, background: "#fff", color: "#000" }} onClick={() => {
+                  if (window.confirm("Se crea un link nuevo y el anterior deja de funcionar. ¿Seguir?")) pedirCalendario(true);
+                }}>
+                  Cambiar link
+                </button>
+              </div>
+            )}
+            {calToken && (
+              <div style={{ ...styles.cardText, fontSize: "13px", marginTop: "8px" }}>
+                No compartas este link: muestra tus eventos. Los cambios pueden tardar unas horas en verse según tu calendario.
+              </div>
+            )}
+            {calMsg && <div style={{ marginTop: "8px", fontSize: "13px", color: "#555", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>{calMsg}</div>}
+          </div>
+        </div>
+
+        {/* Strikes */}
+        {misStrikes && (misStrikes.strikes.length > 0 || user.suspendidoHasta) && (
+          <div style={{ ...styles.card, background: "#fff" }}>
+            <div>
+              <div style={styles.cardTitle}>Strikes</div>
+              {user.suspendidoHasta && new Date(user.suspendidoHasta) > new Date() && (
+                <div style={{ background: "#ffebee", color: "#b71c1c", border: "2px solid #b71c1c", borderRadius: "10px", padding: "10px 12px", margin: "8px 0 12px", fontSize: "14px", fontWeight: 700, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+                  Tu cuenta está suspendida hasta el {new Date(user.suspendidoHasta).toLocaleString("es-CL", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}. Mientras tanto no puedes crear eventos ni unirte.
+                </div>
+              )}
+              <div style={styles.cardText}>
+                Tienes {misStrikes.activos} de {misStrikes.maximo} strikes activos. Cada uno vence a los {misStrikes.diasVigencia} días; con {misStrikes.maximo} la cuenta se suspende 7 días (30 si se repite). Si uno es un error, apélalo.
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "12px" }}>
+                {misStrikes.strikes.map(k => (
+                  <div key={k._id} style={{ border: "2px solid #ddd", borderRadius: "10px", padding: "10px 12px", opacity: k.activo ? 1 : 0.55, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+                    <div style={{ fontSize: "14px", fontWeight: 800 }}>
+                      {{ inasistencia: "No llegaste", cancelacion_tarde: "Saliste a menos de 6 horas", conducta: "Reporte de conducta" }[k.tipo] || k.tipo}
+                      {k.evento ? ` · ${k.evento}` : ""}
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#666", marginTop: "2px" }}>
+                      {new Date(k.fecha).toLocaleDateString("es-CL", { day: "numeric", month: "short" })}
+                      {k.anulado ? " · anulado" : k.activo ? ` · vence el ${new Date(k.vence).toLocaleDateString("es-CL", { day: "numeric", month: "short" })}` : " · vencido"}
+                      {k.apelacion === "pendiente" && " · apelación en revisión"}
+                      {k.apelacion === "aceptada" && " · apelación aceptada"}
+                      {k.apelacion === "rechazada" && " · apelación rechazada"}
+                    </div>
+                    {k.activo && k.apelacion === "ninguna" && (
+                      apelando === k._id ? (
+                        <div style={{ marginTop: "8px" }}>
+                          <textarea
+                            value={apelacionTexto}
+                            onChange={e => setApelacionTexto(e.target.value)}
+                            maxLength={500}
+                            rows={3}
+                            placeholder="Cuéntanos qué pasó (por ejemplo: sí llegué, avisé por el muro...)"
+                            style={{ width: "100%", boxSizing: "border-box", border: "2px solid #333", borderRadius: "8px", padding: "8px", fontSize: "14px", fontFamily: "inherit" }}
+                          />
+                          <div style={{ display: "flex", gap: "8px", marginTop: "6px" }}>
+                            <button style={{ ...styles.actionBtn, background: "#000", color: "#fff" }} onClick={() => enviarApelacion(k._id)}>Enviar</button>
+                            <button style={{ ...styles.actionBtn, background: "#fff", color: "#000" }} onClick={() => { setApelando(null); setApelacionTexto(""); }}>Cancelar</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button style={{ ...styles.actionBtn, background: "#fff", color: "#000", marginTop: "8px" }} onClick={() => { setApelando(k._id); setApelacionMsg(""); }}>
+                          Apelar
+                        </button>
+                      )
+                    )}
+                  </div>
+                ))}
+              </div>
+              {apelacionMsg && <div style={{ marginTop: "8px", fontSize: "13px", color: "#555", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>{apelacionMsg}</div>}
+            </div>
+          </div>
+        )}
 
         {/* Mis eventos */}
         <div
