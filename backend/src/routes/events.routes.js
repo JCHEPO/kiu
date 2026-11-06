@@ -1,14 +1,16 @@
 import express from "express";
 import mongoose from "mongoose";
+import rateLimit from "express-rate-limit";
 import { authenticate, authorize, optionalAuth } from "../middleware/auth.middleware.js";
 import Event from "../models/Event.js";
 import User from "../models/User.js";
-import Cancha from "../models/Cancha.js";
+import Cancha, { tipoDeLugar } from "../models/Cancha.js";
 import { esLinkDeMaps } from "../utils/maps.js";
 import { notify, formatFechaHora, totalParticipantes } from "../utils/notify.js";
 import { registrarActividad } from "../utils/actividad.js";
 import { vincularInscripcion } from "../utils/seguimiento.js";
 import { darStrike, anularStrikes, estaSuspendido, mensajeSuspension, esCancelacionTarde, HORAS_CANCELACION } from "../utils/strikes.js";
+import { nuevoCodigo, normalizarCodigo, ventanaCheckin, tarifaValida, MIN_ANTES_CHECKIN, HORAS_DESPUES_CHECKIN } from "../utils/promocionados.js";
 
 const router = express.Router();
 
@@ -23,6 +25,7 @@ const DIAS_PARA_MARCAR_ASISTENCIA = 7;
 const USER_PUBLIC = "nombre apellido";
 
 const findEventFull = (id) => Event.findById(id)
+  .populate("cancha", "nombre categoria tieneLuz gratuita")
   .populate("creator", USER_PUBLIC)
   .populate("participants", USER_PUBLIC)
   .populate("messages.sender", USER_PUBLIC)
@@ -47,6 +50,8 @@ const toPublicEvent = (event) => {
     cost: e.cost,
     restriccionGenero: e.restriccionGenero,
     lugarTipo: e.lugarTipo || "otro",
+    promocionado: !!e.promocionado,
+    cancha: e.cancha?.nombre ? { nombre: e.cancha.nombre, tieneLuz: !!e.cancha.tieneLuz } : null,
     creator: e.creator ? { _id: e.creator._id, nombre: e.creator.nombre || "" } : null,
     participantCount: totalParticipantes(e),
     isPublicView: true
@@ -68,6 +73,10 @@ const toTarjetaPublica = (e) => ({
   maxParticipants: e.maxParticipants,
   restriccionGenero: e.restriccionGenero,
   lugarTipo: e.lugarTipo || "otro",
+  promocionado: !!e.promocionado,
+  // En un evento promocionado el lugar es un local (no una persona): se muestra su nombre,
+  // que es justamente lo que el local quiere dar a conocer.
+  ...(e.promocionado ? { location: e.location } : {}),
   participantCount: totalParticipantes(e),
   isPublicView: true
 });
@@ -160,9 +169,9 @@ router.get("/mine", authenticate, async (req, res) => {
 
 // POST /api/events - Crear evento (todos los usuarios logueados)
 router.post("/", authenticate, async (req, res) => {
-  const { title, date, description, location, mapsUrl, minParticipants, maxParticipants, category, subcategory, cost, restriccionGenero, comuna, items, canchaId } = req.body;
+  const { title, date, description, location, mapsUrl, minParticipants, maxParticipants, category, subcategory, cost, restriccionGenero, comuna, items, canchaId, promocionado, tarifaKiu } = req.body;
   try {
-    const creador = await User.findById(req.user.id).select("suspendidoHasta");
+    const creador = await User.findById(req.user.id).select("suspendidoHasta rol");
     if (estaSuspendido(creador)) return res.status(403).json({ error: mensajeSuspension(creador) });
 
     // --- Validación server-side ---
@@ -202,14 +211,24 @@ router.post("/", authenticate, async (req, res) => {
     if (mapsUrl && (typeof mapsUrl !== "string" || !esLinkDeMaps(mapsUrl.trim())))
       return res.status(400).json({ error: "El link del lugar debe ser de Google Maps" });
 
-    // Lugar del catálogo: se guarda su id y si es gratuito o reservable (afecta los strikes)
+    // Lugar del catálogo: se guarda su id y si es de uso libre o se reserva (afecta los strikes)
     let cancha = null, lugarTipo = "otro";
     if (canchaId !== undefined && canchaId !== null && canchaId !== "") {
       if (!mongoose.isValidObjectId(canchaId)) return res.status(400).json({ error: "Lugar inválido" });
-      const c = await Cancha.findById(canchaId).select("gratuita");
+      const c = await Cancha.findById(canchaId).select("gratuita categoria");
       if (!c) return res.status(400).json({ error: "El lugar elegido ya no existe" });
       cancha = c._id;
-      lugarTipo = c.gratuita === false ? "reservable" : "gratuita";
+      lugarTipo = tipoDeLugar(c);
+    }
+
+    // Evento promocionado: solo admin, en un local del catálogo (para el reporte de cobro)
+    const esPromo = promocionado === true;
+    let tarifa = 0;
+    if (esPromo) {
+      if (creador?.rol !== "admin") return res.status(403).json({ error: "Solo un admin puede crear eventos promocionados" });
+      if (!cancha) return res.status(400).json({ error: "Un evento promocionado tiene que ser en un local del catálogo (admin → Lugares)" });
+      tarifa = tarifaKiu === undefined || tarifaKiu === null || tarifaKiu === "" ? 0 : Number(tarifaKiu);
+      if (!tarifaValida(tarifa)) return res.status(400).json({ error: "La tarifa por persona debe ser un número entero entre 0 y 100.000" });
     }
 
     const initialItems = Array.isArray(items)
@@ -230,12 +249,17 @@ router.post("/", authenticate, async (req, res) => {
       restriccionGenero: restriccionGenero || "Mixto",
       cancha,
       lugarTipo,
+      promocionado: esPromo,
+      tarifaKiu: tarifa,
+      checkinCodigo: esPromo ? nuevoCodigo() : null,
       creator: req.user.id,
       participants: [req.user.id],
       messages: [],
       items: initialItems
     });
-    res.json(event);
+    // La respuesta no lleva la tarifa ni el código (select: false no aplica a lo recién creado)
+    const { tarifaKiu: _t, checkinCodigo: _c, ...creado } = event.toJSON();
+    res.json(creado);
     registrarActividad("evento_creado", { user: req.user.id, event: event._id });
   } catch (err) {
     console.error("Error al crear evento:", err);
@@ -260,10 +284,20 @@ router.get("/:id", optionalAuth, async (req, res) => {
       registrarActividad("vista_publica", { event: event._id });
       return res.json(toPublicEvent(event));
     }
-    // La asistencia solo la ve el organizador
+    // La asistencia (y en promocionados, el código de llegada y la tarifa) solo la ve el organizador
     if (event.creator?._id?.toString() === req.user.id) {
-      const conAsistencia = await Event.findById(event._id).select("asistencia").lean();
-      return res.json({ ...event.toJSON(), asistencia: conAsistencia?.asistencia || [] });
+      const extra = await Event.findById(event._id).select("+asistencia +checkinCodigo +tarifaKiu").lean();
+      return res.json({
+        ...event.toJSON(),
+        asistencia: extra?.asistencia || [],
+        ...(event.promocionado ? { checkinCodigo: extra?.checkinCodigo || null, tarifaKiu: extra?.tarifaKiu || 0 } : {})
+      });
+    }
+    // A cada participante de un promocionado se le dice si ya marcó su llegada
+    if (event.promocionado && event.participants.some((p) => String(p._id) === req.user.id)) {
+      const extra = await Event.findById(event._id).select("+asistencia").lean();
+      const mia = (extra?.asistencia || []).find((a) => String(a.user) === req.user.id);
+      return res.json({ ...event.toJSON(), miLlegada: mia ? { estado: mia.estado, at: mia.at } : null });
     }
     res.json(event);
   } catch (err) {
@@ -566,7 +600,7 @@ router.put("/:id", authenticate, async (req, res) => {
     let canchaNueva = null;
     if (canchaId !== undefined && canchaId !== null && canchaId !== "") {
       if (!mongoose.isValidObjectId(canchaId)) return res.status(400).json({ error: "Lugar inválido" });
-      canchaNueva = await Cancha.findById(canchaId).select("gratuita");
+      canchaNueva = await Cancha.findById(canchaId).select("gratuita categoria");
       if (!canchaNueva) return res.status(400).json({ error: "El lugar elegido ya no existe" });
     }
 
@@ -592,7 +626,7 @@ router.put("/:id", authenticate, async (req, res) => {
       event.mapsUrl = typeof mapsUrl === "string" ? mapsUrl.trim() : "";
       if (typeof comuna === "string") event.comuna = comuna.trim();
       event.cancha = canchaNueva ? canchaNueva._id : null;
-      event.lugarTipo = canchaNueva ? (canchaNueva.gratuita === false ? "reservable" : "gratuita") : "otro";
+      event.lugarTipo = tipoDeLugar(canchaNueva);
       changes.push("lugar");
     }
 
@@ -733,8 +767,8 @@ router.put("/:id/asistencia", authenticate, async (req, res) => {
     const ahora = new Date();
     for (const [uid, estado] of nuevas) {
       const a = event.asistencia.find((x) => String(x.user) === uid);
-      if (a) { if (a.estado !== estado) { a.estado = estado; a.at = ahora; } }
-      else event.asistencia.push({ user: uid, estado, at: ahora });
+      if (a) { if (a.estado !== estado) { a.estado = estado; a.at = ahora; a.via = "organizador"; } }
+      else event.asistencia.push({ user: uid, estado, at: ahora, via: "organizador" });
     }
     if (typeof noSeJugo === "boolean") event.noSeJugo = noSeJugo;
     await event.save();
@@ -762,11 +796,58 @@ router.put("/:id/asistencia", authenticate, async (req, res) => {
     }
 
     const updatedEvent = await findEventFull(req.params.id);
-    res.json({ ...updatedEvent.toJSON(), asistencia: event.asistencia.map((a) => ({ user: a.user, estado: a.estado, at: a.at })) });
+    res.json({ ...updatedEvent.toJSON(), asistencia: event.asistencia.map((a) => ({ user: a.user, estado: a.estado, at: a.at, via: a.via })) });
     io.to(`event-${req.params.id}`).emit("event-updated", updatedEvent);
   } catch (err) {
     console.error("Error al marcar asistencia:", err);
     res.status(500).json({ error: "Error al guardar la asistencia" });
+  }
+});
+
+// POST /api/events/:id/checkin { codigo } - "Llegué": la persona inscrita marca su llegada con el
+// código que muestra el local (eventos promocionados). Sirve desde 1 h antes hasta 4 h después del inicio.
+// Así el local y Kiu ven el mismo número de personas que llegaron (es lo que se cobra).
+const checkinLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  keyGenerator: (req) => String(req.user.id), // va después de authenticate
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Demasiados intentos. Espera unos minutos." }
+});
+
+router.post("/:id/checkin", authenticate, checkinLimiter, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json({ error: "Evento no encontrado" });
+    const event = await Event.findById(req.params.id).select("+asistencia +checkinCodigo");
+    if (!event || !event.promocionado || !event.checkinCodigo) return res.status(404).json({ error: "Este evento no usa código de llegada" });
+    if (String(event.creator) === req.user.id) return res.status(400).json({ error: "Eres quien organiza: la llegada la marcan los inscritos" });
+    if (!event.participants.some((p) => String(p) === req.user.id)) {
+      return res.status(403).json({ error: "Primero inscríbete en el evento" });
+    }
+    const ventana = ventanaCheckin(event.date);
+    if (ventana === "antes") return res.status(400).json({ error: `El código se puede usar desde ${MIN_ANTES_CHECKIN} minutos antes del inicio` });
+    if (ventana === "despues") return res.status(400).json({ error: `El código se podía usar hasta ${HORAS_DESPUES_CHECKIN} horas después del inicio` });
+    if (normalizarCodigo(req.body?.codigo) !== event.checkinCodigo) {
+      return res.status(400).json({ error: "Código incorrecto. Pídelo en el local." });
+    }
+
+    const previa = event.asistencia.find((a) => String(a.user) === req.user.id);
+    if (previa?.estado === "llego") return res.json({ ok: true, yaMarcado: true, at: previa.at });
+    const estabaComoNoLlego = previa?.estado === "no_llego";
+    const ahora = new Date();
+    if (previa) { previa.estado = "llego"; previa.at = ahora; previa.via = "codigo"; }
+    else event.asistencia.push({ user: req.user.id, estado: "llego", at: ahora, via: "codigo" });
+    await event.save();
+    // Si el organizador lo había marcado como "no llegó", el strike se quita
+    if (estabaComoNoLlego) {
+      await anularStrikes({ event: event._id, user: req.user.id, tipo: "inasistencia" }, "Marcó su llegada con el código del local");
+    }
+    res.json({ ok: true, at: ahora });
+    registrarActividad("checkin", { user: req.user.id, event: event._id });
+  } catch (err) {
+    console.error("Error en check-in:", err);
+    res.status(500).json({ error: "No se pudo marcar la llegada" });
   }
 });
 

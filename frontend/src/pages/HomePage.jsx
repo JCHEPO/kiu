@@ -754,11 +754,15 @@ function EventPostItCard({ event, isLoggedIn, sizeFactor: externalScale }) {
       display: "flex",
       flexDirection: "column",
       alignItems: "flex-start",
-      textAlign: "left"
+      textAlign: "left",
+      minWidth: 0
     },
 
     titleLine: {
-      fontSize: s(44),
+      // La tarjeta de "Evento" es angosta (tipo afiche): título más chico para que no empuje el contador
+      fontSize: s(isEvento ? 34 : 44),
+      overflowWrap: "break-word",
+      hyphens: "auto",
       fontWeight: 900,
       color: "#000",
       lineHeight: 1.1,
@@ -776,9 +780,10 @@ function EventPostItCard({ event, isLoggedIn, sizeFactor: externalScale }) {
     },
     bottomSection: {
       display: "flex",
+      flexDirection: isEvento ? "column" : "row",
       justifyContent: "space-between",
       alignItems: "flex-start",
-      gap: s(16),
+      gap: s(isEvento ? 6 : 16),
       fontSize: s(16),
       fontWeight: "bold",
       fontFamily: '"Bricolage Grotesque", system-ui, sans-serif',
@@ -811,8 +816,24 @@ function EventPostItCard({ event, isLoggedIn, sizeFactor: externalScale }) {
         />
       )}
 
+      {/* Tarjeta angosta (Evento): el sello y el contador van en una fila, y el título usa todo el ancho */}
+      {isEvento && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: s(8), marginBottom: s(10) }}>
+          {event.promocionado ? (
+            <div style={{ background: "#000", color: "#fff", fontSize: s(13), fontWeight: 800, letterSpacing: "0.06em", padding: `${s(3)} ${s(9)}`, borderRadius: s(6), fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+              PROMOCIONADO
+            </div>
+          ) : <span />}
+          <div style={{ ...cardStyles.rating, marginLeft: 0 }}>{currentParticipants}/{maxParticipants}</div>
+        </div>
+      )}
       <div style={cardStyles.topSection}>
         <div style={cardStyles.titleContainer}>
+          {event.promocionado && !isEvento && (
+            <div style={{ background: "#000", color: "#fff", fontSize: s(13), fontWeight: 800, letterSpacing: "0.06em", padding: `${s(3)} ${s(9)}`, borderRadius: s(6), marginBottom: s(10), fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+              PROMOCIONADO
+            </div>
+          )}
           {event.category === "Partido" && (
             <>
               <div style={cardStyles.titleLine}>Partido de</div>
@@ -828,31 +849,38 @@ function EventPostItCard({ event, isLoggedIn, sizeFactor: externalScale }) {
 
           {event.subcategory && (
             <div style={{ ...cardStyles.titleLine, fontSize: s(28), marginTop: s(4), fontWeight: 999 }}>
-              {/^\d+$/.test(event.subcategory) ? `Para ${event.subcategory} personas` : event.subcategory}
+              {/^\d+$/.test(event.subcategory) ? `Para ${event.subcategory} personas`
+                : /^\d+-\d+$/.test(event.subcategory) ? `${event.subcategory.replace("-", "–")} personas`
+                : event.subcategory}
             </div>
           )}
         </div>
-        <div style={cardStyles.rating}>{currentParticipants}/{maxParticipants}</div>
+        {!isEvento && <div style={cardStyles.rating}>{currentParticipants}/{maxParticipants}</div>}
       </div>
       <div style={{ flexGrow: 1 }} />
 
       {/* Sin sesión: de qué trata, la comuna y cuántos van. El lugar exacto y la hora, al iniciar sesión. */}
+      {/* En un promocionado el lugar es un local: se muestra su nombre y el precio (es lo que se promociona). */}
       {!isLoggedIn && event.comuna && (
         <div style={{ ...cardStyles.bottomSection, marginBottom: s(6), position: "relative", zIndex: 3 }}>
-          <div>📍 {event.comuna}</div>
+          <div>
+            <div>📍 {event.promocionado && event.location ? `${event.location}, ${event.comuna}` : event.comuna}</div>
+            {event.promocionado && <div>{textoPrecio(event)}</div>}
+          </div>
         </div>
       )}
 
       <div style={{ ...cardStyles.bottomSection, ...(isLoggedIn ? {} : cardStyles.blurred) }}>
-        <div>
-          {event.location && <div>{event.location}</div>}
+        {/* Sin sesión, el promocionado ya mostró arriba el local y el precio */}
+        {(isLoggedIn || !event.promocionado) ? (
           <div>
-            {event.cost > 0 ? `$${event.cost} por persona` : "Gratis"}
+            {event.location && <div>{event.location}</div>}
+            <div>{textoPrecio(event)}</div>
           </div>
-        </div>
+        ) : <div />}
 
         {event.date && (
-          <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+          <div style={{ textAlign: isEvento ? "left" : "right", whiteSpace: "nowrap" }}>
             <div>{formatDate(event.date)}</div>
             <div>{formatTime(event.date)} hs</div>
           </div>
@@ -860,6 +888,12 @@ function EventPostItCard({ event, isLoggedIn, sizeFactor: externalScale }) {
       </div>
     </div>
   );
+}
+
+// "$15.000 por persona" / "Gratis". En los promocionados el precio lo cobra el local.
+function textoPrecio(event) {
+  if (!(event.cost > 0)) return "Gratis";
+  return `$${Number(event.cost).toLocaleString("es-CL")} ${event.promocionado ? "· se paga en el local" : "por persona"}`;
 }
 
 // ¿El usuario puede unirse a este evento según su restricción de género?
@@ -1012,13 +1046,28 @@ export default function HomePage() {
   const menuRef = useRef(null);
 
   // Available events: not past, not full, and the user can join them (gender restriction)
-  const availableEvents = events.filter((ev) => {
+  const abierto = (ev) => {
     if (ev.date && new Date(ev.date) < new Date()) return false;
     const total = ev.participantCount ?? ((ev.participants?.length || 0) + (ev.manualParticipants?.length || 0));
     if (total >= ev.maxParticipants) return false;
     if (!puedeUnirsePorGenero(ev, auth?.user)) return false;
     return true;
-  });
+  };
+  // Los promocionados (talleres en locales) van en su propio carrusel, no en la grilla ni en el destacado
+  const availableEvents = events.filter((ev) => !ev.promocionado && abierto(ev));
+  const promoEvents = events.filter((ev) => ev.promocionado && abierto(ev));
+  const promoRef = useRef(null);
+  const moverPromo = (dir) => promoRef.current?.scrollBy({ left: dir * promoRef.current.clientWidth * 0.8, behavior: "smooth" });
+  // Las flechas solo aparecen si las tarjetas no caben en el ancho
+  const [promoDesborda, setPromoDesborda] = useState(false);
+  useEffect(() => {
+    const el = promoRef.current;
+    if (!el) { setPromoDesborda(false); return; }
+    const medir = () => setPromoDesborda(el.scrollWidth > el.clientWidth + 4);
+    medir();
+    window.addEventListener("resize", medir);
+    return () => window.removeEventListener("resize", medir);
+  }, [promoEvents.length, isMobile]);
 
   const filteredEvents = availableEvents.filter((ev) => {
     // Filter by comuna
@@ -1655,6 +1704,34 @@ export default function HomePage() {
           </div>
         </div>
 
+        {/* Talleres y eventos promocionados */}
+        {promoEvents.length > 0 && (
+          <section aria-label="Talleres y eventos" style={{ marginTop: "32px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", marginBottom: "12px" }}>
+              <h2 style={{ margin: 0, fontSize: isMobile ? "22px" : "28px", fontWeight: 900, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', color: "#000" }}>
+                Talleres y eventos
+              </h2>
+              {!isMobile && promoDesborda && (
+                <div style={{ display: "flex", gap: "8px" }}>
+                  {[[-1, "←", "Anteriores"], [1, "→", "Siguientes"]].map(([dir, flecha, label]) => (
+                    <button key={dir} type="button" aria-label={label} onClick={() => moverPromo(dir)}
+                      style={{ width: "40px", height: "40px", border: "3px solid #000", background: "#fff", boxShadow: "3px 3px 0 #000", fontSize: "18px", fontWeight: 900, cursor: "pointer" }}>
+                      {flecha}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div ref={promoRef} style={{ display: "flex", gap: isMobile ? "12px" : "20px", overflowX: "auto", scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch", padding: "4px 4px 14px", scrollbarWidth: "thin" }}>
+              {promoEvents.map((ev) => (
+                <div key={ev._id} data-promo-card style={{ flex: "0 0 auto", scrollSnapAlign: "start", cursor: "pointer" }} onClick={() => handleCardClick(ev._id)}>
+                  <EventPostItCard event={ev} isLoggedIn={isLoggedIn} sizeFactor={isMobile ? 0.58 : 0.72} />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Events Grid */}
         <div style={styles.eventsSection} id="events-section">
           {/* Combinable filters */}
@@ -1812,6 +1889,9 @@ export default function HomePage() {
         <Link to="/terminos" style={{ color: "#333" }}>Términos</Link>
         {" · "}
         <Link to="/privacidad" style={{ color: "#333" }}>Privacidad</Link>
+        <div style={{ marginTop: "8px", fontSize: "11px", color: "#666" }}>
+          Algunas canchas: © colaboradores de <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" style={{ color: "#666" }}>OpenStreetMap</a>
+        </div>
       </footer>
     </div>
   );

@@ -35,10 +35,20 @@ const EventSchema = new mongoose.Schema({
     type: [new mongoose.Schema({
       user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
       estado: { type: String, enum: ["llego", "no_llego"], required: true },
-      at: { type: Date, default: Date.now }
+      at: { type: Date, default: Date.now },
+      // "codigo": la persona marcó que llegó con el código del local (eventos promocionados)
+      via: { type: String, enum: ["organizador", "codigo"], default: "organizador" }
     }, { _id: false })],
     select: false
   },
+  // Evento promocionado: un local (cafetería, bar...) le paga a Kiu por cada persona que llega.
+  // Solo lo crea un admin y siempre se muestra con el sello "Promocionado". El precio del taller
+  // (cost) se paga directo al local: Kiu no recibe ni maneja ese dinero.
+  promocionado: { type: Boolean, default: false },
+  // Lo que el local paga a Kiu por cada persona que llega (CLP). Solo lo ve el admin.
+  tarifaKiu: { type: Number, default: 0, select: false },
+  // Código que el local muestra (impreso o en QR) para que cada persona marque "llegué"
+  checkinCodigo: { type: String, default: null, select: false },
   // "No se jugó": la cancha estaba ocupada o se suspendió. Nadie recibe strike por ese evento.
   noSeJugo: { type: Boolean, default: false },
   // Avisos ya enviados (para no repetirlos)
@@ -48,5 +58,6 @@ const EventSchema = new mongoose.Schema({
 });
 
 EventSchema.index({ date: 1 });
+EventSchema.index({ promocionado: 1, date: 1 });
 
 export default mongoose.model("Event", EventSchema);

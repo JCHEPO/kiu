@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 // Registro mínimo de actividad para las métricas del piloto (panel admin → Métricas).
 // Es propio: no usa cookies ni servicios externos. Al borrar una cuenta, `user` queda en null.
-export const TIPOS_ACTIVIDAD = ["registro", "evento_creado", "union", "salida", "vista_publica"];
+export const TIPOS_ACTIVIDAD = ["registro", "evento_creado", "union", "salida", "vista_publica", "checkin"];
 
 const ActivitySchema = new mongoose.Schema({
   tipo: { type: String, enum: TIPOS_ACTIVIDAD, required: true },

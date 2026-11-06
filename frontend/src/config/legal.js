@@ -5,7 +5,7 @@ export const LEGAL = {
   email: "juanmanuelcheporivas@gmail.com",
   ciudad: "Concepción, Chile",
   // Al cambiar el texto de los términos o la política, actualizar la fecha (y TERMINOS_VERSION en backend/src/config.js)
-  version: "2026-11-05",
-  versionTexto: "5 de noviembre de 2026",
+  version: "2026-11-06",
+  versionTexto: "6 de noviembre de 2026",
   edadMinima: 18 // debe coincidir con EDAD_MINIMA en backend/src/config.js
 };

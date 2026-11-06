@@ -6,6 +6,9 @@ import { API_URL } from "../config/api";
 
 const comunaOptions = ["Concepción", "Talcahuano", "Chiguayante", "San Pedro", "Hualpén", "Penco", "Tomé", "Coronel", "Lota", "Hualqui"];
 const tipoOptions = ["fútbol", "básquet", "tenis", "pádel", "vóley", "multiuso"];
+// En la base el campo se llama "gratuita" (true = uso libre); en pantalla se habla de reservar
+const OPCIONES_RESERVA = [{ value: true, label: "Uso libre" }, { value: false, label: "Se reserva" }];
+const textoReserva = (c) => c.gratuita === false ? "Se reserva" : "Uso libre";
 const categoriaOptions = [
   { value: "cancha", label: "Cancha" },
   { value: "bar", label: "Bar" },
@@ -58,7 +61,9 @@ export default function AdminPage() {
 
   // --- LUGARES state ---
   const [canchas, setCanchas] = useState([]);
-  const [formData, setFormData] = useState({ categoria: "cancha", nombre: "", latitud: "", longitud: "", comuna: "", direccion: "", tipo: [], gratuita: true });
+  // gratuita: true = uso libre (no se reserva), false = se reserva
+  const FORM_VACIO = { categoria: "cancha", nombre: "", latitud: "", longitud: "", comuna: "", direccion: "", tipo: [], gratuita: true, tieneLuz: false };
+  const [formData, setFormData] = useState(FORM_VACIO);
   const [loadingForm, setLoadingForm] = useState(false);
   const [formMsg, setFormMsg] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -73,6 +78,21 @@ export default function AdminPage() {
   const [editSearching, setEditSearching] = useState(false);
   const [editMsg, setEditMsg] = useState("");
   const [editCoords, setEditCoords] = useState(null);
+  const [editFields, setEditFields] = useState(null);
+  // importar desde OpenStreetMap
+  const [osmComuna, setOsmComuna] = useState("");
+  const [osmLoading, setOsmLoading] = useState(false);
+  const [osmError, setOsmError] = useState("");
+  const [osmLugares, setOsmLugares] = useState(null);
+  const [osmImportando, setOsmImportando] = useState(false);
+  const [osmResultado, setOsmResultado] = useState(null);
+
+  // --- LOCALES (eventos promocionados) state ---
+  const mesActual = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
+  const [localesMes, setLocalesMes] = useState(mesActual);
+  const [locales, setLocales] = useState(null);
+  const [loadingLocales, setLoadingLocales] = useState(false);
+  const [copiadoLocal, setCopiadoLocal] = useState(null);
 
   // --- USUARIOS state ---
   const [users, setUsers] = useState(null);
@@ -96,6 +116,7 @@ export default function AdminPage() {
     if (openSection === "metricas" && metrics === null) loadMetrics();
     if (openSection === "reportes" && reports === null) loadReports("pendiente");
     if (openSection === "apelaciones" && apelaciones === null) loadApelaciones();
+    if (openSection === "locales" && locales === null) loadLocales(localesMes);
   }, [openSection]);
 
   const toggleSection = (key) => setOpenSection(prev => prev === key ? null : key);
@@ -120,12 +141,13 @@ export default function AdminPage() {
           ubicacion: { type: "Point", coordinates: [parseFloat(formData.longitud), parseFloat(formData.latitud)] },
           comuna: formData.comuna, direccion: formData.direccion,
           tipo: formData.categoria === "cancha" ? formData.tipo : [],
-          categoria: formData.categoria, gratuita: formData.gratuita
+          categoria: formData.categoria, gratuita: formData.gratuita,
+          tieneLuz: formData.categoria === "cancha" && formData.tieneLuz
         })
       });
       if (res.ok) {
         setFormMsg("✓ Lugar agregado");
-        setFormData({ categoria: formData.categoria, nombre: "", latitud: "", longitud: "", comuna: "", direccion: "", tipo: [], gratuita: true });
+        setFormData({ ...FORM_VACIO, categoria: formData.categoria });
         fetchCanchas();
       } else {
         const d = await res.json();
@@ -223,11 +245,12 @@ export default function AdminPage() {
     } finally { setBulkLoading(false); }
   };
 
-  const openEditCancha = (id) => {
-    setEditingCanchaId(id);
+  const openEditCancha = (c) => {
+    setEditingCanchaId(c._id);
     setEditSearch("");
     setEditCoords(null);
     setEditMsg("");
+    setEditFields({ nombre: c.nombre || "", tipo: c.tipo || [], gratuita: c.gratuita !== false, tieneLuz: !!c.tieneLuz, categoria: c.categoria || "cancha" });
   };
 
   const handleEditSearch = async () => {
@@ -260,26 +283,100 @@ export default function AdminPage() {
     finally { setEditSearching(false); }
   };
 
-  const handleSaveGeocode = async (id) => {
-    if (!editCoords) return;
+  // Guarda los datos editados y, si se buscó una ubicación nueva, también la ubicación
+  const handleSaveCancha = async (id) => {
+    if (!editFields?.nombre.trim()) { setEditMsg("El nombre no puede quedar vacío"); return; }
+    const body = { nombre: editFields.nombre.trim() };
+    if (editFields.categoria === "cancha") {
+      body.tipo = editFields.tipo;
+      body.gratuita = editFields.gratuita;
+      body.tieneLuz = editFields.tieneLuz;
+    }
+    if (editCoords) {
+      body.ubicacion = { type: "Point", coordinates: [editCoords.lng, editCoords.lat] };
+      body.direccion = editCoords.direccion;
+      if (editCoords.comuna) body.comuna = editCoords.comuna;
+    }
     try {
       const res = await fetchWithAuth(`${API_URL}/api/canchas/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ubicacion: { type: "Point", coordinates: [editCoords.lng, editCoords.lat] },
-          direccion: editCoords.direccion,
-          comuna: editCoords.comuna || undefined
-        })
+        body: JSON.stringify(body)
       });
       if (res.ok) {
         const updated = await res.json();
         setCanchas(prev => prev.map(c => c._id === id ? updated : c));
         setEditingCanchaId(null);
       } else {
-        setEditMsg("Error al guardar");
+        const d = await res.json().catch(() => ({}));
+        setEditMsg(d.error || "Error al guardar");
       }
     } catch { setEditMsg("Error de conexión"); }
+  };
+
+  // --- OpenStreetMap ---
+  const buscarOsm = async () => {
+    if (!osmComuna) return;
+    setOsmLoading(true); setOsmError(""); setOsmLugares(null); setOsmResultado(null);
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/canchas/osm?comuna=${encodeURIComponent(osmComuna)}`);
+      const d = await res.json();
+      if (!res.ok) { setOsmError(d.error || "No se pudo consultar OpenStreetMap"); return; }
+      // Vienen marcadas las que conviene importar: no repetidas y no privadas
+      setOsmLugares(d.lugares.map(l => ({ ...l, elegida: !l.yaImportada && !l.cercana && !l.privada })));
+    } catch { setOsmError("Error de conexión"); }
+    finally { setOsmLoading(false); }
+  };
+
+  const cambiarOsm = (osmId, cambios) => setOsmLugares(prev => prev.map(l => l.osmId === osmId ? { ...l, ...cambios } : l));
+
+  const importarOsm = async () => {
+    const elegidas = (osmLugares || []).filter(l => l.elegida && !l.yaImportada);
+    if (!elegidas.length) return;
+    setOsmImportando(true); setOsmResultado(null);
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/canchas/osm/importar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lugares: elegidas.map(l => ({ osmId: l.osmId, nombre: l.nombre, lat: l.lat, lng: l.lng, comuna: l.comuna, direccion: l.direccion, tipo: l.tipo, tieneLuz: l.tieneLuz, seReserva: l.seReserva })) })
+      });
+      const d = await res.json();
+      if (!res.ok) { setOsmResultado({ error: d.error || "Error al importar" }); return; }
+      setOsmResultado(d);
+      const ok = new Set(d.resultados.filter(r => r.ok).map(r => r.osmId));
+      setOsmLugares(prev => prev.map(l => ok.has(l.osmId) ? { ...l, yaImportada: true, elegida: false } : l));
+      fetchCanchas();
+    } catch { setOsmResultado({ error: "Error de conexión" }); }
+    finally { setOsmImportando(false); }
+  };
+
+  // --- LOCALES handlers ---
+  const loadLocales = async (mes) => {
+    setLoadingLocales(true);
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/locales?mes=${encodeURIComponent(mes)}`);
+      const d = await res.json();
+      setLocales(res.ok ? d : { error: d.error || "Error al cargar" });
+    } catch { setLocales({ error: "Error de conexión" }); }
+    finally { setLoadingLocales(false); }
+  };
+
+  const nombreMes = (mes) => {
+    const [a, m] = mes.split("-").map(Number);
+    return new Date(a, m - 1, 1).toLocaleDateString("es-CL", { month: "long", year: "numeric" });
+  };
+  const pesos = (n) => `$${Math.round(n || 0).toLocaleString("es-CL")}`;
+
+  // Resumen para mandarle al local por WhatsApp o correo
+  const resumenLocal = (l) => [
+    `Kiu · ${l.nombre} · ${nombreMes(locales.mes)}`,
+    ...l.eventos.map(e => `- ${new Date(e.date).toLocaleDateString("es-CL", { day: "numeric", month: "short" })} ${e.title}: ${e.llegaron} llegaron${e.noSeJugo ? " (no se realizó, $0)" : ` × ${pesos(e.tarifa)} = ${pesos(e.monto)}`}`),
+    `Total: ${l.llegaron} personas · ${pesos(l.monto)}`
+  ].join("\n");
+
+  const copiarResumen = async (l) => {
+    try { await navigator.clipboard.writeText(resumenLocal(l)); setCopiadoLocal(l.nombre); setTimeout(() => setCopiadoLocal(null), 2000); }
+    catch { window.prompt("Copia el resumen:", resumenLocal(l)); }
   };
 
   // --- USUARIOS handlers ---
@@ -538,6 +635,72 @@ export default function AdminPage() {
           )}
         </div>
 
+        {/* ── LOCALES (eventos promocionados) ── */}
+        <div style={S.card}>
+          <SectionHeader title="Locales (eventos promocionados)" isOpen={openSection === "locales"} onClick={() => toggleSection("locales")} />
+          {openSection === "locales" && (
+            <div style={{ padding: "0 24px 24px" }}>
+              <div style={S.ayuda}>
+                Cuánto le toca pagar a cada local: personas que llegaron × la tarifa de cada evento. Cuenta a quienes marcaron
+                su llegada con el código del local y a quienes marcaste como "Llegó". Estos eventos no entran en las métricas del piloto.
+              </div>
+              <div style={{ display: "flex", gap: "8px", alignItems: "center", margin: "12px 0" }}>
+                <input type="month" aria-label="Mes" value={localesMes} onChange={e => { setLocalesMes(e.target.value); if (e.target.value) loadLocales(e.target.value); }}
+                  style={{ ...S.input, width: "auto" }} />
+              </div>
+              {loadingLocales || !locales
+                ? <div style={S.empty}>Cargando...</div>
+                : locales.error
+                ? <div style={{ ...S.msg, color: "#c62828", background: "#ffebee" }}>{locales.error}</div>
+                : locales.locales.length === 0
+                ? <div style={S.empty}>No hubo eventos promocionados en {nombreMes(locales.mes)}.</div>
+                : <>
+                  <div style={{ ...S.rowTitle, fontSize: "16px", marginBottom: "8px" }}>
+                    Total {nombreMes(locales.mes)}: {pesos(locales.total)} · {locales.llegaron} personas llegaron
+                  </div>
+                  {locales.locales.map(l => (
+                    <div key={l.nombre} style={{ border: "2px solid #eee", borderRadius: "10px", padding: "12px", marginBottom: "12px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                        <div>
+                          <div style={S.rowTitle}>{l.nombre}</div>
+                          <div style={S.rowSub}>{l.comuna} · {l.eventos.length} evento{l.eventos.length === 1 ? "" : "s"} · {l.inscritos} inscritos · {l.llegaron} llegaron</div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <span style={{ ...S.rowTitle, fontSize: "18px" }}>{pesos(l.monto)}</span>
+                          <button style={S.btnOutline} onClick={() => copiarResumen(l)}>{copiadoLocal === l.nombre ? "✓ Copiado" : "Copiar resumen"}</button>
+                        </div>
+                      </div>
+                      <div style={{ marginTop: "8px", overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", fontFamily: '"Patrick Hand", system-ui, cursive' }}>
+                          <thead>
+                            <tr style={{ textAlign: "left", color: "#666" }}>
+                              <th style={{ padding: "4px 6px" }}>Evento</th><th style={{ padding: "4px 6px" }}>Inscritos</th>
+                              <th style={{ padding: "4px 6px" }}>Llegaron</th><th style={{ padding: "4px 6px" }}>Tarifa</th><th style={{ padding: "4px 6px" }}>Monto</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {l.eventos.map(e => (
+                              <tr key={e._id} style={{ borderTop: "1px solid #f0f0f0" }}>
+                                <td style={{ padding: "4px 6px" }}>
+                                  <a href={`/event/${e._id}`} style={{ color: "#000" }}>{e.title}</a>
+                                  <div style={{ color: "#888", fontSize: "12px" }}>{new Date(e.date).toLocaleDateString("es-CL", { day: "numeric", month: "short" })}{e.noSeJugo ? " · no se realizó" : ""}</div>
+                                </td>
+                                <td style={{ padding: "4px 6px" }}>{e.inscritos}</td>
+                                <td style={{ padding: "4px 6px" }}>{e.llegaron}{e.porCodigo ? <span style={{ color: "#888" }}> ({e.porCodigo} con código)</span> : null}</td>
+                                <td style={{ padding: "4px 6px" }}>{pesos(e.tarifa)}</td>
+                                <td style={{ padding: "4px 6px", fontWeight: 700 }}>{pesos(e.monto)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </>}
+            </div>
+          )}
+        </div>
+
         {/* ── LUGARES ── */}
         <div style={S.card}>
           <SectionHeader title="Lugares" badge={canchas.length} isOpen={openSection === "lugares"} onClick={() => toggleSection("lugares")} />
@@ -599,12 +762,19 @@ export default function AdminPage() {
                 {formData.categoria === "cancha" && (
                   <>
                     <div style={S.formGroup}>
-                      <label style={S.label}>Acceso</label>
-                      <div style={{ display: "flex", gap: "8px" }}>
-                        {[{ value: true, label: "Gratuita" }, { value: false, label: "Pagada" }].map(opt => (
+                      <label style={S.label}>¿Se reserva?</label>
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                        {OPCIONES_RESERVA.map(opt => (
                           <button key={String(opt.value)} type="button" style={S.chip(formData.gratuita === opt.value)} onClick={() => setFormData({ ...formData, gratuita: opt.value })}>{opt.label}</button>
                         ))}
                       </div>
+                      <div style={S.ayuda}>{formData.gratuita ? "Uso libre: no se reserva y puede estar ocupada. Los strikes son más suaves." : "Se reserva (arriendo o reserva en la muni): salir con menos de 6 h de anticipación da strike."}</div>
+                    </div>
+                    <div style={S.formGroup}>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", cursor: "pointer", ...S.label, marginBottom: 0 }}>
+                        <input type="checkbox" id="cancha-luz" checked={formData.tieneLuz} onChange={e => setFormData({ ...formData, tieneLuz: e.target.checked })} style={{ width: "18px", height: "18px" }} />
+                        💡 Tiene luz (se puede jugar de noche)
+                      </label>
                     </div>
                     <div style={S.formGroup}>
                       <label style={S.label}>Tipo de deporte</label>
@@ -625,13 +795,84 @@ export default function AdminPage() {
                 </button>
               </form>
 
+              {/* Importar desde OpenStreetMap */}
+              <div style={{ marginTop: "32px" }}>
+                <div style={S.divider} />
+                <h3 style={{ ...S.cardTitle, fontSize: "17px", marginTop: "20px" }}>Buscar canchas en OpenStreetMap</h3>
+                <div style={S.ayuda}>
+                  OpenStreetMap es un mapa libre hecho por voluntarios. Trae canchas de fútbol, básquet y multicanchas de la comuna;
+                  revisa cada una antes de importar (nombre, si se reserva y si tiene luz). Muchas no tienen nombre: pónselo tú.
+                  Datos © colaboradores de OpenStreetMap (licencia ODbL).
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", margin: "12px 0" }}>
+                  {comunaOptions.map(c => <button key={c} type="button" style={S.chip(osmComuna === c)} onClick={() => setOsmComuna(c)}>{c}</button>)}
+                </div>
+                <button id="osm-buscar" style={S.btnSmall} onClick={buscarOsm} disabled={!osmComuna || osmLoading}>
+                  {osmLoading ? "Buscando (puede tardar 30 s)..." : osmComuna ? `Buscar en ${osmComuna}` : "Elige una comuna"}
+                </button>
+                {osmError && <div style={{ ...S.msg, color: "#c62828", background: "#ffebee", marginTop: "10px" }}>{osmError}</div>}
+                {osmLugares && (
+                  <div style={{ marginTop: "14px" }}>
+                    {osmLugares.length === 0
+                      ? <div style={S.empty}>OpenStreetMap no tiene canchas de fútbol o básquet en {osmComuna}.</div>
+                      : <>
+                        <div style={{ ...S.rowSub, marginBottom: "8px" }}>
+                          {osmLugares.length} encontradas · {osmLugares.filter(l => l.elegida && !l.yaImportada).length} elegidas para importar
+                        </div>
+                        {osmLugares.map(l => (
+                          <div key={l.osmId} style={{ ...S.row, alignItems: "flex-start", opacity: l.yaImportada ? 0.5 : 1, gap: "10px" }}>
+                            <input type="checkbox" aria-label={`Importar ${l.nombre}`} checked={!!l.elegida && !l.yaImportada} disabled={l.yaImportada}
+                              onChange={e => cambiarOsm(l.osmId, { elegida: e.target.checked })} style={{ width: "18px", height: "18px", marginTop: "8px" }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <input type="text" value={l.nombre} disabled={l.yaImportada} onChange={e => cambiarOsm(l.osmId, { nombre: e.target.value, sinNombre: false })}
+                                style={{ ...S.input, padding: "6px 10px", fontSize: "14px", borderColor: l.sinNombre ? "#f9a825" : undefined }} />
+                              <div style={{ ...S.rowSub, marginTop: "4px" }}>
+                                {l.tipo.join(", ")}{l.direccion ? ` · ${l.direccion}` : ""}{l.superficie ? ` · ${l.superficie}` : ""}
+                                {" · "}<a href={`https://www.google.com/maps?q=${l.lat},${l.lng}`} target="_blank" rel="noopener noreferrer">ver en el mapa</a>
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "6px", alignItems: "center" }}>
+                                {l.yaImportada && <span style={S.badgeBlue}>Ya está en el catálogo</span>}
+                                {!l.yaImportada && l.cercana && <span style={S.badgeYellow}>Parece repetida: "{l.cercana.nombre}" a {l.cercana.metros} m</span>}
+                                {l.privada && <span style={S.badgeRed}>Privada (colegio, club...)</span>}
+                                {l.sinNombre && !l.yaImportada && <span style={S.badgeYellow}>Sin nombre en OSM</span>}
+                                {!l.yaImportada && OPCIONES_RESERVA.map(opt => (
+                                  <button key={String(opt.value)} type="button" style={{ ...S.chip(l.seReserva !== opt.value), padding: "3px 10px", fontSize: "12px" }}
+                                    onClick={() => cambiarOsm(l.osmId, { seReserva: !opt.value })}>{opt.label}</button>
+                                ))}
+                                {!l.yaImportada && (
+                                  <label style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "13px", cursor: "pointer", fontFamily: '"Patrick Hand", system-ui, cursive' }}>
+                                    <input type="checkbox" checked={l.tieneLuz} onChange={e => cambiarOsm(l.osmId, { tieneLuz: e.target.checked })} />
+                                    💡 Luz{l.luzDesconocida ? " (OSM no dice)" : ""}
+                                  </label>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        <button id="osm-importar" style={{ ...S.btnSmall, marginTop: "12px" }} onClick={importarOsm}
+                          disabled={osmImportando || !osmLugares.some(l => l.elegida && !l.yaImportada)}>
+                          {osmImportando ? "Importando..." : `Importar ${osmLugares.filter(l => l.elegida && !l.yaImportada).length} canchas`}
+                        </button>
+                      </>}
+                    {osmResultado && (
+                      <div style={{ marginTop: "10px", fontSize: "13px", fontFamily: '"Patrick Hand", system-ui, cursive' }}>
+                        {osmResultado.error
+                          ? <span style={{ color: "#c62828" }}>{osmResultado.error}</span>
+                          : <><span style={{ color: "#2e7d32" }}>✓ {osmResultado.ok}/{osmResultado.total} importadas</span>
+                            {osmResultado.resultados?.filter(r => r.error).map((r, i) => <div key={i} style={{ color: "#c62828" }}>✗ {r.nombre}: {r.error}</div>)}</>}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Bulk import */}
               <div style={{ marginTop: "32px" }}>
                 <div style={S.divider} />
                 <h3 style={{ ...S.cardTitle, fontSize: "17px", marginTop: "20px" }}>Importar en masa (JSON)</h3>
                 <textarea
                   style={{ ...S.input, height: "140px", resize: "vertical", fontFamily: "monospace", fontSize: "12px" }}
-                  placeholder={`[\n  {\n    "nombre": "Cancha Municipal",\n    "direccion": "Av. Los Presidentes 1549",\n    "comuna": "Concepción",\n    "categoria": "cancha",\n    "tipo": ["fútbol"],\n    "gratuita": true\n  }\n]`}
+                  placeholder={`[\n  {\n    "nombre": "Cancha Municipal",\n    "direccion": "Av. Los Presidentes 1549",\n    "comuna": "Concepción",\n    "categoria": "cancha",\n    "tipo": ["fútbol"],\n    "seReserva": false,\n    "tieneLuz": true,\n    "lat": -36.8270,\n    "lng": -73.0498\n  }\n]`}
                   value={bulkJson}
                   onChange={e => setBulkJson(e.target.value)}
                 />
@@ -667,18 +908,45 @@ export default function AdminPage() {
                             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                               <span style={S.rowTitle}>{c.nombre}</span>
                               {!hasCoords && <span style={{ ...S.badgeRed, fontSize: "10px" }}>Sin coords</span>}
+                              {c.fuente === "osm" && <span style={{ ...S.badgeBlue, fontSize: "10px" }}>OSM</span>}
                             </div>
-                            <div style={S.rowSub}>[{c.categoria || "cancha"}] {c.comuna}{c.direccion ? ` · ${c.direccion}` : ""}{c.tipo?.length ? ` · ${c.tipo.join(", ")}` : ""}{c.categoria === "cancha" ? ` · ${c.gratuita === false ? "Pagada" : "Gratuita"}` : ""}{hasCoords ? ` · 📍 ${c.ubicacion.coordinates[1].toFixed(4)}, ${c.ubicacion.coordinates[0].toFixed(4)}` : ""}</div>
+                            <div style={S.rowSub}>[{c.categoria || "cancha"}] {c.comuna}{c.direccion ? ` · ${c.direccion}` : ""}{c.tipo?.length ? ` · ${c.tipo.join(", ")}` : ""}{(c.categoria || "cancha") === "cancha" ? ` · ${textoReserva(c)}${c.tieneLuz ? " · 💡 con luz" : ""}` : ""}{hasCoords ? ` · 📍 ${c.ubicacion.coordinates[1].toFixed(4)}, ${c.ubicacion.coordinates[0].toFixed(4)}` : ""}</div>
                           </div>
                           <div style={{ display: "flex", gap: "6px" }}>
-                            <button onClick={() => isEditing ? setEditingCanchaId(null) : openEditCancha(c._id)} style={isEditing ? S.btnOutline : S.btnPrimary}>
-                              {isEditing ? "Cancelar" : "📍 Ubicar"}
+                            <button onClick={() => isEditing ? setEditingCanchaId(null) : openEditCancha(c)} style={isEditing ? S.btnOutline : S.btnPrimary}>
+                              {isEditing ? "Cancelar" : "Editar"}
                             </button>
                             <button onClick={() => handleDeleteCancha(c._id)} style={S.btnDanger}>Eliminar</button>
                           </div>
                         </div>
-                        {isEditing && (
+                        {isEditing && editFields && (
                           <div style={{ padding: "12px 0 16px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                            <input type="text" aria-label="Nombre" style={{ ...S.input, fontSize: "14px", padding: "8px 12px" }} value={editFields.nombre}
+                              onChange={e => setEditFields({ ...editFields, nombre: e.target.value })} />
+                            {editFields.categoria === "cancha" && (
+                              <>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                                  {tipoOptions.map(t => {
+                                    const sel = editFields.tipo.includes(t);
+                                    return <button key={t} type="button" style={{ ...S.chip(sel), padding: "4px 10px", fontSize: "12px" }} onClick={() => {
+                                      if (t === "multiuso") setEditFields({ ...editFields, tipo: sel ? [] : ["multiuso"] });
+                                      else { const wo = editFields.tipo.filter(x => x !== "multiuso"); setEditFields({ ...editFields, tipo: sel ? wo.filter(x => x !== t) : [...wo, t] }); }
+                                    }}>{t}</button>;
+                                  })}
+                                </div>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
+                                  {OPCIONES_RESERVA.map(opt => (
+                                    <button key={String(opt.value)} type="button" style={{ ...S.chip(editFields.gratuita === opt.value), padding: "4px 10px", fontSize: "12px" }}
+                                      onClick={() => setEditFields({ ...editFields, gratuita: opt.value })}>{opt.label}</button>
+                                  ))}
+                                  <label style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "13px", cursor: "pointer", marginLeft: "6px", fontFamily: '"Patrick Hand", system-ui, cursive' }}>
+                                    <input type="checkbox" checked={editFields.tieneLuz} onChange={e => setEditFields({ ...editFields, tieneLuz: e.target.checked })} />
+                                    💡 Tiene luz
+                                  </label>
+                                </div>
+                              </>
+                            )}
+                            <div style={S.ayuda}>Para cambiar la ubicación, busca la dirección o pega un link de Google Maps:</div>
                             <div style={{ display: "flex", gap: "8px" }}>
                               <input
                                 type="text"
@@ -687,7 +955,6 @@ export default function AdminPage() {
                                 value={editSearch}
                                 onChange={e => setEditSearch(e.target.value)}
                                 onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleEditSearch(); } }}
-                                autoFocus
                               />
                               <button style={S.btnSmall} onClick={handleEditSearch} disabled={editSearching}>
                                 {editSearching ? "..." : "Buscar"}
@@ -699,11 +966,9 @@ export default function AdminPage() {
                                 {editCoords && ` → ${editCoords.lat.toFixed(5)}, ${editCoords.lng.toFixed(5)}${editCoords.direccion ? " · " + editCoords.direccion : ""}${editCoords.comuna ? " · " + editCoords.comuna : ""}`}
                               </div>
                             )}
-                            {editCoords && (
-                              <button style={{ ...S.btnSmall, background: "#2e7d32", alignSelf: "flex-start" }} onClick={() => handleSaveGeocode(c._id)}>
-                                Guardar ubicación
-                              </button>
-                            )}
+                            <button style={{ ...S.btnSmall, background: "#2e7d32", alignSelf: "flex-start" }} onClick={() => handleSaveCancha(c._id)}>
+                              Guardar cambios{editCoords ? " y ubicación" : ""}
+                            </button>
                           </div>
                         )}
                       </div>
@@ -958,6 +1223,7 @@ const S = {
   btnOutline: { padding: "7px 14px", background: "#fff", color: "#555", border: "2px solid #aaa", borderRadius: "8px", fontSize: "12px", fontWeight: 700, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', cursor: "pointer", whiteSpace: "nowrap" },
   btnBack: { padding: "14px 30px", background: "#000", color: "#fff", border: "none", borderRadius: "8px", fontSize: "16px", fontWeight: "bold", cursor: "pointer", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' },
   chip: (active) => ({ padding: "7px 14px", borderRadius: "20px", border: active ? "2px solid #000" : "2px solid #ccc", background: active ? "#000" : "#fff", color: active ? "#fff" : "#000", fontSize: "13px", fontWeight: 600, fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', cursor: "pointer" }),
+  ayuda: { fontSize: "13px", color: "#666", marginTop: "6px", lineHeight: 1.4, fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' },
   msg: { padding: "10px 14px", borderRadius: "8px", marginBottom: "14px", fontSize: "13px", fontWeight: 600, fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' },
   divider: { height: "1px", background: "#eee", margin: "0 0 0 0" },
   row: { display: "flex", alignItems: "center", gap: "12px", padding: "12px 0", borderBottom: "1px solid #f0f0f0", flexWrap: "wrap" },

@@ -10,6 +10,7 @@ import { darStrike, anularStrikes, recalcular, levantarSuspension } from "../uti
 import { VENTANA_DIAS } from "../utils/seguimiento.js";
 import { notify, formatFechaHora, totalParticipantes } from "../utils/notify.js";
 import { eliminarCuenta } from "../utils/cuentas.js";
+import { reporteLocales } from "../utils/promocionados.js";
 
 const router = express.Router();
 const adminOnly = (req, res, next) => authenticate(req, res, () => authorize(["admin"])(req, res, next));
@@ -240,13 +241,21 @@ router.get("/metrics", adminOnly, async (req, res) => {
     const SEMANAS = 8;
     const desde8 = new Date(ahora - SEMANAS * 7 * DIA);
 
+    // Los eventos promocionados (talleres en locales) no cuentan para las metas del piloto:
+    // tienen su propio reporte (GET /locales).
+    const promo = new Set((await Event.distinct("_id", { promocionado: true })).map(String));
+    const deEventoPromo = (id) => !!id && promo.has(String(id));
+    const noPromo = { promocionado: { $ne: true } };
+
     // Conteos por semana
-    const [actividad, aperturas8, ocurridos8] = await Promise.all([
-      Activity.find({ at: { $gte: desde8 } }).select("tipo via at").lean(),
-      LinkVisit.find({ abiertoAt: { $gte: desde8 } }).select("abiertoAt").lean(),
-      Event.find({ date: { $gte: desde8, $lt: new Date(ahora) } })
+    const [actividadTodas, aperturasTodas, ocurridos8] = await Promise.all([
+      Activity.find({ at: { $gte: desde8 } }).select("tipo via at event").lean(),
+      LinkVisit.find({ abiertoAt: { $gte: desde8 } }).select("abiertoAt event").lean(),
+      Event.find({ date: { $gte: desde8, $lt: new Date(ahora) }, ...noPromo })
         .select("date minParticipants participants manualParticipants confirmedAt noSeJugo").lean()
     ]);
+    const actividad = actividadTodas.filter((a) => !deEventoPromo(a.event));
+    const aperturas8 = aperturasTodas.filter((v) => !deEventoPromo(v.event));
     const semanas = Array.from({ length: SEMANAS }, (_, i) => ({
       desde: new Date(ahora - (i + 1) * 7 * DIA), hasta: new Date(ahora - i * 7 * DIA),
       registro: 0, evento_creado: 0, union: 0, salida: 0, vista_publica: 0, aperturas: 0, jugados: 0
@@ -263,8 +272,9 @@ router.get("/metrics", adminOnly, async (req, res) => {
     // Se combinan los eventos que existen y el registro de actividad (por si alguno se borró).
     // Solo cuentan quienes crearon su primer evento hace 30 días o más (los demás todavía no tuvieron el plazo).
     const [eventos, creadosLog] = await Promise.all([
-      Event.find({}).select("creator createdAt").lean(),
+      Event.find(noPromo).select("creator createdAt").lean(),
       Activity.find({ tipo: "evento_creado", user: { $ne: null } }).select("user event at").lean()
+        .then((lista) => lista.filter((a) => !deEventoPromo(a.event)))
     ]);
     const porCreador = new Map();
     const agregar = (user, eventId, fecha) => {
@@ -286,7 +296,7 @@ router.get("/metrics", adminOnly, async (req, res) => {
     }
 
     // 2. Eventos de los últimos 60 días (ya ocurridos, con mínimo) que llegaron al mínimo antes de empezar
-    const pasados = await Event.find({ date: { $lt: new Date(ahora), $gte: new Date(ahora - 60 * DIA) } })
+    const pasados = await Event.find({ date: { $lt: new Date(ahora), $gte: new Date(ahora - 60 * DIA) }, ...noPromo })
       .select("date minParticipants participants manualParticipants confirmedAt noSeJugo asistencia").lean();
     const conMinimo = pasados.filter((e) => e.minParticipants > 0);
     const confirmados = conMinimo.filter(llegoAlMinimo).length;
@@ -294,8 +304,9 @@ router.get("/metrics", adminOnly, async (req, res) => {
     // 3. Links: de quienes abrieron un link en los últimos 30 días, cuántos se inscribieron en ese evento
     // dentro de 7 días (contando crear la cuenta). Las aperturas muy recientes todavía pueden convertir.
     const desde30 = new Date(ahora - 30 * DIA);
-    const visitas = await LinkVisit.find({ abiertoAt: { $gte: desde30 } })
-      .select("event origen conSesion user abiertoAt cuentaCreadaAt inscritoAt").lean();
+    const visitas = (await LinkVisit.find({ abiertoAt: { $gte: desde30 } })
+      .select("event origen conSesion user abiertoAt cuentaCreadaAt inscritoAt").lean())
+      .filter((v) => !deEventoPromo(v.event));
     const ventanaMs = VENTANA_DIAS * DIA;
     const seInscribio = (v) => v.inscritoAt && new Date(v.inscritoAt).getTime() - new Date(v.abiertoAt).getTime() <= ventanaMs;
     const inscritosLink = visitas.filter(seInscribio);
@@ -372,6 +383,20 @@ router.get("/metrics", adminOnly, async (req, res) => {
   } catch (err) {
     console.error("Error calculando métricas:", err);
     res.status(500).json({ error: "Error al calcular métricas" });
+  }
+});
+
+// GET /api/admin/locales?mes=2026-11 - Eventos promocionados del mes por local: inscritos, cuántos llegaron
+// y cuánto le toca pagar a cada local (personas que llegaron × tarifa del evento).
+router.get("/locales", adminOnly, async (req, res) => {
+  try {
+    const mes = typeof req.query.mes === "string" ? req.query.mes : "";
+    const reporte = await reporteLocales(mes);
+    if (!reporte) return res.status(400).json({ error: "Mes inválido (usa AAAA-MM)" });
+    res.json(reporte);
+  } catch (err) {
+    console.error("Error en reporte de locales:", err);
+    res.status(500).json({ error: "Error al armar el reporte" });
   }
 });
 
