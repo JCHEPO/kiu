@@ -18,7 +18,7 @@ export const JWT_EXPIRES_IN = "30d";
 
 // Términos y política de privacidad: al cambiar su texto, actualizar esta versión (fecha).
 // Se guarda junto a la fecha en que cada usuario los aceptó.
-export const TERMINOS_VERSION = "2026-11-02";
+export const TERMINOS_VERSION = "2026-11-05";
 
 // Edad mínima para crear una cuenta (debe coincidir con frontend/src/config/legal.js)
 export const EDAD_MINIMA = 18;

@@ -2,7 +2,7 @@ import { useState, useEffect, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthContext } from "../context/AuthContext";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+import { API_URL } from "../config/api";
 
 const comunaOptions = ["Concepción", "Talcahuano", "Chiguayante", "San Pedro", "Hualpén", "Penco", "Tomé", "Coronel", "Lota", "Hualqui"];
 const tipoOptions = ["fútbol", "básquet", "tenis", "pádel", "vóley", "multiuso"];
@@ -53,6 +53,8 @@ export default function AdminPage() {
   const [reports, setReports] = useState(null);
   const [reportsEstado, setReportsEstado] = useState("pendiente");
   const [loadingReports, setLoadingReports] = useState(false);
+  const [apelaciones, setApelaciones] = useState(null);
+  const [loadingApelaciones, setLoadingApelaciones] = useState(false);
 
   // --- LUGARES state ---
   const [canchas, setCanchas] = useState([]);
@@ -93,6 +95,7 @@ export default function AdminPage() {
     if (openSection === "verificaciones" && verifications === null) loadVerifications();
     if (openSection === "metricas" && metrics === null) loadMetrics();
     if (openSection === "reportes" && reports === null) loadReports("pendiente");
+    if (openSection === "apelaciones" && apelaciones === null) loadApelaciones();
   }, [openSection]);
 
   const toggleSection = (key) => setOpenSection(prev => prev === key ? null : key);
@@ -334,6 +337,26 @@ export default function AdminPage() {
     finally { setLoadingMetrics(false); }
   };
 
+  // --- APELACIONES handlers ---
+  const loadApelaciones = async () => {
+    setLoadingApelaciones(true);
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/apelaciones`);
+      setApelaciones(res.ok ? await res.json() : []);
+    } catch { setApelaciones([]); }
+    finally { setLoadingApelaciones(false); }
+  };
+
+  const resolverApelacion = async (id, apelacion) => {
+    const res = await fetchWithAuth(`${API_URL}/api/admin/strikes/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apelacion })
+    });
+    if (res.ok) setApelaciones(prev => prev.filter(a => a._id !== id));
+    else alert("No se pudo resolver la apelación");
+  };
+
   // --- REPORTES handlers ---
   const loadReports = async (estado) => {
     setReportsEstado(estado);
@@ -409,13 +432,17 @@ export default function AdminPage() {
                   : <>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px", marginBottom: "20px" }}>
                       {metrics.kpis.map(k => {
-                        const pct = (v) => `${Math.round(v * 100)}%`;
-                        const estado = k.valor === null ? "sin" : k.valor >= k.meta ? "ok" : "bajo";
+                        const esNumero = k.formato === "numero";
+                        const pct = (v) => esNumero ? String(v) : `${Math.round(v * 100)}%`;
+                        const sinDatos = k.valor === null || (!esNumero && !k.denominador);
+                        const estado = sinDatos ? "sin" : k.meta === null || k.meta === undefined ? "seguir" : k.valor >= k.meta ? "ok" : "bajo";
                         const badge = estado === "ok"
                           ? { ...S.badgeGreen, text: "✓ Cumple la meta" }
                           : estado === "bajo"
                             ? { ...S.badgeYellow, text: "↓ Bajo la meta" }
-                            : { ...S.badgeGray, text: "… Sin datos aún" };
+                            : estado === "seguir"
+                              ? { ...S.badgeGray, text: "Sin meta: se sigue" }
+                              : { ...S.badgeGray, text: "… Sin datos aún" };
                         const { text, ...badgeStyle } = badge;
                         return (
                           <div key={k.clave} style={{ border: "2px solid #333", borderRadius: "12px", padding: "16px", background: "#fff" }}>
@@ -424,7 +451,7 @@ export default function AdminPage() {
                               {k.valor === null ? "—" : pct(k.valor)}
                             </div>
                             <div style={{ fontSize: "13px", color: "#555", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', marginBottom: "8px" }}>
-                              {k.numerador} de {k.denominador} · meta {pct(k.meta)}
+                              {esNumero ? "en la semana" : `${k.numerador} de ${k.denominador}`}{k.meta !== null && k.meta !== undefined ? ` · meta ${pct(k.meta)}` : ""}
                             </div>
                             <span style={badgeStyle}>{text}</span>
                             <div style={{ fontSize: "12px", color: "#777", marginTop: "10px", lineHeight: 1.4, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>{k.nota}</div>
@@ -433,12 +460,56 @@ export default function AdminPage() {
                       })}
                     </div>
 
+                    {metrics.embudo && (
+                      <div style={{ marginBottom: "20px" }}>
+                        <div style={{ fontSize: "15px", fontWeight: 800, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', marginBottom: "8px" }}>Links compartidos · últimos 30 días</div>
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px" }}>
+                          {[
+                            ["Abrieron el link", metrics.embudo.aperturas],
+                            ["Sin cuenta", metrics.embudo.sinCuenta],
+                            ["Crearon cuenta", metrics.embudo.cuentasCreadas],
+                            ["Se inscribieron (7 días)", metrics.embudo.inscritos],
+                            ["Llegaron al evento", metrics.embudo.asistieron]
+                          ].map(([t, n], i) => (
+                            <div key={t} style={{ flex: "1 1 120px", border: "2px solid #333", borderRadius: "10px", padding: "10px", background: i === 0 ? "#f7f7f7" : "#fff" }}>
+                              <div style={{ fontSize: "24px", fontWeight: 900, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', fontVariantNumeric: "tabular-nums" }}>{n}</div>
+                              <div style={{ fontSize: "12px", color: "#555", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>{t}</div>
+                            </div>
+                          ))}
+                        </div>
+                        {metrics.embudo.porOrigen.length > 0 && (
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+                            <thead>
+                              <tr>
+                                {["Origen", "Abrieron", "Se inscribieron", "%"].map((h, i) => (
+                                  <th key={h} style={{ textAlign: i === 0 ? "left" : "right", padding: "6px", borderBottom: "2px solid #333" }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {metrics.embudo.porOrigen.map(o => (
+                                <tr key={o.origen} style={{ borderBottom: "1px solid #eee" }}>
+                                  <td style={{ padding: "6px" }}>{{ wa: "WhatsApp", compartir: "Menú compartir", copia: "Link copiado", directo: "Directo / sin origen", qr: "QR" }[o.origen] || o.origen}</td>
+                                  <td style={{ padding: "6px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{o.aperturas}</td>
+                                  <td style={{ padding: "6px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{o.inscritos}</td>
+                                  <td style={{ padding: "6px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{o.aperturas ? `${Math.round(o.inscritos / o.aperturas * 100)}%` : "—"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                        <div style={{ ...S.rowSub, marginTop: "6px" }}>
+                          Para un afiche o una historia, agrega <code>?o=</code> al link del evento (p.ej. <code>/event/ID?o=qr-cancha-1</code>) y aparecerá como origen aparte.
+                        </div>
+                      </div>
+                    )}
+
                     <div style={{ fontSize: "15px", fontWeight: 800, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif', marginBottom: "8px" }}>Últimas 8 semanas</div>
                     <div style={{ overflowX: "auto" }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
                         <thead>
                           <tr>
-                            {["Semana", "Registros", "Eventos creados", "Uniones", "Salidas", "Vistas sin cuenta"].map((h, i) => (
+                            {["Semana", "Registros", "Eventos creados", "Jugados", "Uniones", "Salidas", "Links abiertos"].map((h, i) => (
                               <th key={h} style={{ textAlign: i === 0 ? "left" : "right", padding: "8px 6px", borderBottom: "2px solid #333", whiteSpace: "nowrap" }}>{h}</th>
                             ))}
                           </tr>
@@ -449,7 +520,7 @@ export default function AdminPage() {
                               <td style={{ padding: "8px 6px", whiteSpace: "nowrap" }}>
                                 {new Date(w.desde).toLocaleDateString("es-CL", { day: "numeric", month: "short" })} – {new Date(w.hasta).toLocaleDateString("es-CL", { day: "numeric", month: "short" })}
                               </td>
-                              {[w.registro, w.evento_creado, w.union, w.salida, w.vista_publica].map((n, j) => (
+                              {[w.registro, w.evento_creado, w.jugados ?? 0, w.union, w.salida, w.aperturas ?? 0].map((n, j) => (
                                 <td key={j} style={{ padding: "8px 6px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{n}</td>
                               ))}
                             </tr>
@@ -663,6 +734,9 @@ export default function AdminPage() {
                             {u.verificado && <span style={S.badgeBlue}>✓ Verificado</span>}
                             {!u.activo && <span style={S.badgeRed}>Baneado</span>}
                             {u.strikes > 0 && <span style={S.badgeYellow}>⚠ {u.strikes} strikes</span>}
+                            {u.suspendidoHasta && new Date(u.suspendidoHasta) > new Date() && (
+                              <span style={S.badgeRed}>Suspendido hasta {formatDate(u.suspendidoHasta)}</span>
+                            )}
                           </div>
                           <div style={S.rowSub}>{u.email} · {u.genero || "género no especificado"} · desde {formatDate(u.fechaRegistro)}</div>
                         </div>
@@ -675,6 +749,14 @@ export default function AdminPage() {
                           )}
                           {u.verificado && (
                             <button style={S.btnOutline} onClick={() => updateUser(u._id, { verificado: false })}>Quitar verif.</button>
+                          )}
+                          {u.suspendidoHasta && new Date(u.suspendidoHasta) > new Date() ? (
+                            <button style={S.btnGreen} onClick={() => updateUser(u._id, { levantarSuspension: true })}>Levantar suspensión</button>
+                          ) : (
+                            <button style={S.btnOutline} onClick={() => {
+                              const dias = window.prompt("¿Cuántos días de suspensión? (conducta grave: 7 o 30)", "7");
+                              if (dias && /^\d+$/.test(dias.trim())) updateUser(u._id, { suspenderDias: parseInt(dias) });
+                            }}>Suspender</button>
                           )}
                           <button style={S.btnDanger} onClick={() => deleteUser(u._id)}>Eliminar</button>
                         </div>
@@ -762,6 +844,39 @@ export default function AdminPage() {
                       <div style={{ display: "flex", gap: "6px" }}>
                         <button style={S.btnGreen} onClick={() => updateUser(u._id, { verificado: true, solicitaVerificacion: false })}>Aprobar</button>
                         <button style={S.btnDanger} onClick={() => updateUser(u._id, { solicitaVerificacion: false })}>Rechazar</button>
+                      </div>
+                    </div>
+                  ))
+              }
+            </div>
+          )}
+        </div>
+
+        {/* ── APELACIONES DE STRIKES ── */}
+        <div style={S.card}>
+          <SectionHeader title="Apelaciones de strikes" badge={apelaciones?.length} isOpen={openSection === "apelaciones"} onClick={() => toggleSection("apelaciones")} />
+          {openSection === "apelaciones" && (
+            <div style={{ padding: "0 24px 24px" }}>
+              {loadingApelaciones
+                ? <div style={S.empty}>Cargando...</div>
+                : !apelaciones?.length
+                  ? <div style={S.empty}>No hay apelaciones pendientes</div>
+                  : apelaciones.map(a => (
+                    <div key={a._id} style={S.row}>
+                      <div style={{ flex: 1 }}>
+                        <div style={S.rowTitle}>
+                          {[a.user?.nombre, a.user?.apellido].filter(Boolean).join(" ") || "Usuario"} · {{ inasistencia: "No llegó", cancelacion_tarde: "Salió tarde", conducta: "Conducta" }[a.tipo] || a.tipo}
+                          {a.eventTitulo ? ` · "${a.eventTitulo}"` : ""}
+                        </div>
+                        <div style={S.rowSub}>
+                          {formatDate(a.creadoAt)} · {a.user?.strikes || 0} strikes activos
+                          {a.user?.suspendidoHasta && new Date(a.user.suspendidoHasta) > new Date() ? " · suspendido" : ""}
+                        </div>
+                        <div style={{ fontSize: "14px", marginTop: "6px", whiteSpace: "pre-wrap", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>“{a.apelacion?.texto}”</div>
+                      </div>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                        <button style={S.btnGreen} onClick={() => resolverApelacion(a._id, "aceptada")}>Quitar strike</button>
+                        <button style={S.btnOutline} onClick={() => resolverApelacion(a._id, "rechazada")}>Mantener</button>
                       </div>
                     </div>
                   ))

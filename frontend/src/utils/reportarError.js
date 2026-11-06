@@ -1,6 +1,6 @@
 // Envía al backend los errores que ocurren en el navegador, para verlos en los logs del servidor
 // (y por email si el backend tiene ALERT_EMAIL). No manda datos personales: solo el error y la página.
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+import { API_URL } from "../config/api";
 
 const enviados = new Set(); // no repetir el mismo error en la misma visita
 let total = 0;

@@ -6,7 +6,8 @@ import { AuthContext } from "../context/AuthContext";
 import { REGIONES } from "../config/regiones";
 import { LEGAL } from "../config/legal";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+import { API_URL } from "../config/api";
+import { visitaReciente } from "../utils/seguimiento";
 const FB_APP_ID = import.meta.env.VITE_FACEBOOK_APP_ID || "";
 // Google y Facebook se muestran solo si su ID está configurado (en Vercel o frontend/.env).
 // Sin VITE_GOOGLE_CLIENT_ID, la librería de Google lanza un error que dejaba la página en blanco.
@@ -83,7 +84,8 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
       const res = await fetch(`${API_URL}/api/auth/google`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessToken: tokenResponse.access_token })
+        // visita: si llegó por un link compartido (métrica del piloto; solo cuenta si la cuenta es nueva)
+        body: JSON.stringify({ accessToken: tokenResponse.access_token, visita: visitaReciente() })
       });
       const data = await res.json();
       if (data.error) {
@@ -117,7 +119,7 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
         fetch(`${API_URL}/api/auth/facebook`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ accessToken })
+          body: JSON.stringify({ accessToken, visita: visitaReciente() })
         })
           .then(res => res.json())
           .then(data => {
@@ -185,7 +187,7 @@ function LoginModal({ onClose, onLoginSuccess, onNavigateProfile }) {
       const res = await fetch(`${API_URL}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, fechaNacimiento: isoDate })
+        body: JSON.stringify({ ...form, fechaNacimiento: isoDate, visita: visitaReciente() })
       });
       const data = await res.json();
       if (data.error) {
@@ -709,7 +711,7 @@ function EventPostItCard({ event, isLoggedIn, sizeFactor: externalScale }) {
   const cardWidth = isEvento ? 280 : 400;
   const cardHeight = isEvento ? 497 : 250;
 
-  const currentParticipants = (event.participants?.length || 0) + (event.manualParticipants?.length || 0);
+  const currentParticipants = event.participantCount ?? ((event.participants?.length || 0) + (event.manualParticipants?.length || 0));
   const maxParticipants = event.maxParticipants || 10;
 
   const formatDate = (dateString) => {
@@ -833,6 +835,13 @@ function EventPostItCard({ event, isLoggedIn, sizeFactor: externalScale }) {
         <div style={cardStyles.rating}>{currentParticipants}/{maxParticipants}</div>
       </div>
       <div style={{ flexGrow: 1 }} />
+
+      {/* Sin sesión: de qué trata, la comuna y cuántos van. El lugar exacto y la hora, al iniciar sesión. */}
+      {!isLoggedIn && event.comuna && (
+        <div style={{ ...cardStyles.bottomSection, marginBottom: s(6), position: "relative", zIndex: 3 }}>
+          <div>📍 {event.comuna}</div>
+        </div>
+      )}
 
       <div style={{ ...cardStyles.bottomSection, ...(isLoggedIn ? {} : cardStyles.blurred) }}>
         <div>
@@ -1005,7 +1014,7 @@ export default function HomePage() {
   // Available events: not past, not full, and the user can join them (gender restriction)
   const availableEvents = events.filter((ev) => {
     if (ev.date && new Date(ev.date) < new Date()) return false;
-    const total = (ev.participants?.length || 0) + (ev.manualParticipants?.length || 0);
+    const total = ev.participantCount ?? ((ev.participants?.length || 0) + (ev.manualParticipants?.length || 0));
     if (total >= ev.maxParticipants) return false;
     if (!puedeUnirsePorGenero(ev, auth?.user)) return false;
     return true;
@@ -1107,7 +1116,8 @@ export default function HomePage() {
       let page = 1;
       let pages = 1;
       do {
-        const res = await fetch(`${API_URL}/api/events?page=${page}&limit=100`);
+        // Con sesión, el backend manda el lugar exacto; sin sesión, solo la comuna
+        const res = await fetchWithAuth(`${API_URL}/api/events?page=${page}&limit=100`);
         const data = await res.json();
         if (Array.isArray(data)) { all.push(...data); break; }
         all.push(...(data.events || []));

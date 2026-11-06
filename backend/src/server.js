@@ -15,6 +15,8 @@ import canchasRoutes from "./routes/canchas.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import shareRoutes from "./routes/share.routes.js";
 import reportsRoutes from "./routes/reports.routes.js";
+import linksRoutes from "./routes/links.routes.js";
+import calendarioRoutes from "./routes/calendario.routes.js";
 import { enviarRecordatorios } from "./jobs/recordatorios.js";
 import { reportarError } from "./utils/alertas.js";
 import User from "./models/User.js";
@@ -120,6 +122,8 @@ app.use("/api/notifications", notificationsRoutes);
 app.use("/api/canchas", canchasRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/reports", reportsRoutes);
+app.use("/api/links", linksRoutes); // seguimiento de links compartidos (ver utils/seguimiento.js)
+app.use("/api/calendario", calendarioRoutes); // suscripción de calendario personal (.ics)
 app.use("/share", shareRoutes); // vistas previas para WhatsApp y otros (ver share.routes.js)
 
 // --- Recordatorios antes de cada evento ---

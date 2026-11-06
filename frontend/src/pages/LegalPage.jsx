@@ -105,10 +105,24 @@ export function TerminosPage() {
         lugares públicos, avisar a alguien de confianza dónde vas a estar y reportar cualquier situación que te incomode.
       </p>
 
-      <h2 style={S.h2}>6. Reportes y moderación</h2>
+      <h2 style={S.h2}>6. Asistencia, strikes y moderación</h2>
       <p>
-        Puedes reportar a un usuario o un evento desde la app. Revisamos cada reporte y podemos eliminar eventos o
-        contenido, sumar advertencias (strikes) a una cuenta y suspenderla si no cumple estos términos.
+        Si te inscribes, el resto cuenta contigo. Después de cada evento, quien lo organiza marca quién llegó. Recibes
+        una advertencia (strike) si:
+      </p>
+      <ul style={S.ul}>
+        <li>no llegas a un evento en el que estabas inscrito, o</li>
+        <li>sales de un evento en una cancha reservada cuando faltan menos de 6 horas.</li>
+      </ul>
+      <p>
+        En canchas gratuitas solo cuenta no llegar sin haber salido del evento. Si la cancha estaba ocupada o el evento no
+        se jugó, nadie recibe strike. Cada strike vence a los 90 días. Con 3 strikes vigentes la cuenta se suspende 7 días
+        (30 días si vuelve a pasar): puedes entrar, pero no crear eventos ni unirte. Puedes apelar cada strike desde tu
+        perfil y lo revisamos.
+      </p>
+      <p>
+        También puedes reportar a un usuario o un evento desde la app. Revisamos cada reporte a mano y podemos eliminar
+        eventos o contenido, sumar un strike por conducta y, en casos graves, suspender la cuenta de inmediato.
       </p>
 
       <h2 style={S.h2}>7. Lo que publicas</h2>
@@ -162,6 +176,9 @@ export function PrivacidadPage() {
         <li><strong>Tu actividad en Kiu:</strong> los eventos que creas o a los que te unes, los mensajes que escribes en los muros, lo que te anotas a llevar, tus notificaciones y los reportes que envías.</li>
         <li><strong>Datos técnicos:</strong> registros del servidor (por ejemplo, la dirección IP) para seguridad y para limitar intentos de inicio de sesión, y errores de la app para poder corregirlos. Tu sesión se guarda en tu navegador.</li>
         <li><strong>Estadísticas de uso:</strong> contamos acciones dentro de Kiu (cuántos eventos se crean, cuántas personas se unen) para mejorar el servicio. No usamos cookies de publicidad ni herramientas de seguimiento de terceros.</li>
+        <li><strong>Links compartidos:</strong> cuando abres el link de un evento guardamos qué evento era, de dónde venía el link (por ejemplo, WhatsApp) y un código al azar que queda en tu navegador por 7 días. Si después creas una cuenta o te inscribes en ese evento, lo asociamos para saber si los links funcionan. No guardamos tu IP ni datos de tu dispositivo para esto.</li>
+        <li><strong>Calendario (opcional):</strong> si activas el calendario automático, creamos un link secreto que tu app de calendario consulta para mostrar los eventos en que estás inscrito. Puedes cambiarlo desde tu perfil y el anterior deja de funcionar.</li>
+        <li><strong>Asistencia y strikes:</strong> si quien organiza un evento marca si llegaste, y los strikes que tengas, con su motivo y tus apelaciones.</li>
       </ul>
 
       <h2 style={S.h2}>3. Para qué los usamos</h2>
@@ -170,7 +187,7 @@ export function PrivacidadPage() {
         <li>Mostrar los eventos, las listas de participantes y los muros.</li>
         <li>Aplicar la restricción de género de un evento (por eso pedimos tu género) y comprobar la edad mínima (por eso pedimos tu fecha de nacimiento).</li>
         <li>Enviarte avisos en la app y por email sobre los eventos en que participas: recordatorios, cambios, confirmaciones y cancelaciones.</li>
-        <li>Mantener Kiu seguro: revisar reportes, sumar advertencias y suspender cuentas que no cumplen los <Link to="/terminos">Términos</Link>.</li>
+        <li>Mantener Kiu seguro y que los eventos se cumplan: registrar la asistencia, sumar strikes, revisar reportes y apelaciones, y suspender cuentas que no cumplen los <Link to="/terminos">Términos</Link>.</li>
         <li>Entender cómo se usa Kiu, con números agregados, para mejorarlo.</li>
       </ul>
 
@@ -179,6 +196,7 @@ export function PrivacidadPage() {
         <li><strong>Cualquier persona, sin cuenta:</strong> el título, la fecha, el lugar y el costo de un evento, el nombre de quien lo organiza y cuántas personas van.</li>
         <li><strong>Usuarios con sesión:</strong> además, el nombre y apellido de los participantes, los mensajes del muro, lo que cada uno lleva, y tu perfil público (nombre, fecha en que te registraste, si estás verificado, tus advertencias y cuántos eventos creaste o en cuántos participaste).</li>
         <li><strong>Nadie más que tú:</strong> tu email, tu teléfono, tu fecha de nacimiento y tu género no se muestran a otros usuarios.</li>
+        <li><strong>Quien organiza el evento:</strong> la asistencia que marcó en su evento. Los demás participantes no la ven.</li>
         <li><strong>El equipo de Kiu:</strong> los administradores pueden ver los datos de las cuentas para moderar y dar soporte.</li>
       </ul>
 
