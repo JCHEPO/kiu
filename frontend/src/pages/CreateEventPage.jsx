@@ -8,8 +8,13 @@ import { TIPOS_ACTIVOS, DEPORTES_ACTIVOS, FORMATOS, TIPO_CANCHA, CON_PELOTA } fr
 import { API_URL } from "../config/api";
 
 export default function CreateEventPage() {
-  const { fetchWithAuth } = useContext(AuthContext);
+  const { auth, fetchWithAuth } = useContext(AuthContext);
   const navigate = useNavigate();
+  // El admin además puede crear "Evento" (talleres, catas, cursos), incluidos los promocionados
+  const esAdmin = auth?.user?.rol === "admin";
+  const tiposVisibles = esAdmin && !TIPOS_ACTIVOS.includes("Evento") ? [...TIPOS_ACTIVOS, "Evento"] : TIPOS_ACTIVOS;
+  // Evento promocionado: el local paga a Kiu por cada persona que llega (solo admin)
+  const [promo, setPromo] = useState({ activo: true, tarifa: "", detalle: "" });
 
   // Mapa de opciones de personas por deporte (ver config/actividades.js)
   const personasOptions = FORMATOS;
@@ -428,18 +433,22 @@ export default function CreateEventPage() {
     }
   };
 
+  // En un taller promocionado el valor es el precio del taller (no un consumo mínimo)
+  const esPromoActivo = esAdmin && eventData.tipo === "Evento" && promo.activo;
+  const textoValor = (n) => `$${Number(n).toLocaleString("es-CL")} ${esPromoActivo ? "· se paga en el local" : "por persona"}`;
+
   // Gratis / no gratis
   const handleGratisChange = (isFree) => {
     setEventData((prev) => {
       const lugarObj = lugares.find(l => l.nombre === prev.lugarOption);
-      const isBarOrCafe = lugarObj ? (lugarObj.categoria === "bar" || lugarObj.categoria === "cafetería") : (prev.lugarOption === "Bar" || prev.lugarOption === "Cafetería");
+      const isBarOrCafe = !esPromoActivo && (lugarObj ? (lugarObj.categoria === "bar" || lugarObj.categoria === "cafetería") : (prev.lugarOption === "Bar" || prev.lugarOption === "Cafetería"));
       return {
         ...prev,
         gratis: isFree,
         costoLabel: isFree
           ? (isBarOrCafe ? "Sin consumo mínimo" : "Gratis")
           : prev.costoNumber
-          ? (isBarOrCafe ? `Consumo mínimo $${prev.costoNumber}` : `$${prev.costoNumber} por persona`)
+          ? (isBarOrCafe ? `Consumo mínimo $${prev.costoNumber}` : textoValor(prev.costoNumber))
           : (isBarOrCafe ? "Consumo mínimo pendiente" : "Valor pendiente")
       };
     });
@@ -449,13 +458,13 @@ export default function CreateEventPage() {
     const num = Number(value || 0);
     setEventData((prev) => {
       const lugarObj = lugares.find(l => l.nombre === prev.lugarOption);
-      const isBarOrCafe = lugarObj ? (lugarObj.categoria === "bar" || lugarObj.categoria === "cafetería") : (prev.lugarOption === "Bar" || prev.lugarOption === "Cafetería");
+      const isBarOrCafe = !esPromoActivo && (lugarObj ? (lugarObj.categoria === "bar" || lugarObj.categoria === "cafetería") : (prev.lugarOption === "Bar" || prev.lugarOption === "Cafetería"));
       return {
         ...prev,
         costoNumber: num,
         costoLabel:
           !prev.gratis && num
-            ? (isBarOrCafe ? `Consumo mínimo $${num}` : `$${num} por persona`)
+            ? (isBarOrCafe ? `Consumo mínimo $${num}` : textoValor(num))
             : !prev.gratis
             ? (isBarOrCafe ? "Consumo mínimo pendiente" : "Valor pendiente")
             : (isBarOrCafe ? "Sin consumo mínimo" : "Gratis")
@@ -598,9 +607,17 @@ export default function CreateEventPage() {
     }
     const lugarElegido = esOtroLugar ? null : lugares.find(l => l.nombre === eventData.lugarOption);
 
+    const esPromo = esAdmin && eventData.tipo === "Evento" && promo.activo;
+    let tarifaKiu = 0;
+    if (esPromo) {
+      if (!lugarElegido) { alert("Un evento promocionado tiene que ser en un local del catálogo (admin → Lugares), no en \"Otro lugar\"."); return; }
+      tarifaKiu = promo.tarifa === "" ? 0 : Number(promo.tarifa);
+      if (!Number.isInteger(tarifaKiu) || tarifaKiu < 0 || tarifaKiu > 100000) { alert("La tarifa por persona tiene que ser un número entero entre 0 y 100.000"); return; }
+    }
+
     const payload = {
       title,
-      description: eventData.eventoDescripcion || "",
+      description: (esPromo && promo.detalle.trim()) ? promo.detalle.trim().slice(0, 500) : (eventData.eventoDescripcion || ""),
       category,
       subcategory,
       tags: [],
@@ -619,7 +636,8 @@ export default function CreateEventPage() {
       comuna: esOtroLugar ? eventData.lugarComuna : (lugarElegido?.comuna || ""),
       // Lugar del catálogo: el backend guarda si es gratuito o reservable (afecta los strikes)
       canchaId: lugarElegido?._id,
-      items: needsBall ? [{ name: "Pelota" }] : []
+      items: needsBall ? [{ name: "Pelota" }] : [],
+      ...(esPromo ? { promocionado: true, tarifaKiu } : {})
     };
 
     try {
@@ -961,7 +979,7 @@ export default function CreateEventPage() {
               Que hacemos ?
             </h2>
             <div style={styles.options}>
-              {TIPOS_ACTIVOS.map((val) => {
+              {tiposVisibles.map((val) => {
                 const selected = eventData.tipo === val;
                 const someSelected = !!eventData.tipo;
                 const dimmed = someSelected && !selected;
@@ -1281,7 +1299,7 @@ export default function CreateEventPage() {
                         fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
                         textTransform: "uppercase"
                       }}>
-                        Gratuitas
+                        Uso libre
                       </div>
                       <select
                         style={{
@@ -1300,12 +1318,12 @@ export default function CreateEventPage() {
                       >
                         <option value="" disabled>Elegir cancha</option>
                         {canchasDelDeporte.filter(l => l.gratuita !== false).map((lugar) => (
-                          <option key={lugar._id} value={lugar.nombre}>{lugar.nombre} - {lugar.comuna}</option>
+                          <option key={lugar._id} value={lugar.nombre}>{lugar.nombre} - {lugar.comuna}{lugar.tieneLuz ? " · 💡 con luz" : ""}</option>
                         ))}
                       </select>
                       {canchasDelDeporte.filter(l => l.gratuita !== false).length === 0 && (
                         <div style={{ textAlign: "center", padding: "8px", color: "#999", fontSize: "13px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
-                          No hay canchas gratuitas
+                          No hay canchas de uso libre
                         </div>
                       )}
                     </div>
@@ -1326,7 +1344,7 @@ export default function CreateEventPage() {
                         fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive',
                         textTransform: "uppercase"
                       }}>
-                        Pagadas
+                        Se reserva
                       </div>
                       <select
                         style={{
@@ -1345,12 +1363,12 @@ export default function CreateEventPage() {
                       >
                         <option value="" disabled>Elegir cancha</option>
                         {canchasDelDeporte.filter(l => l.gratuita === false).map((lugar) => (
-                          <option key={lugar._id} value={lugar.nombre}>{lugar.nombre} - {lugar.comuna}</option>
+                          <option key={lugar._id} value={lugar.nombre}>{lugar.nombre} - {lugar.comuna}{lugar.tieneLuz ? " · 💡 con luz" : ""}</option>
                         ))}
                       </select>
                       {canchasDelDeporte.filter(l => l.gratuita === false).length === 0 && (
                         <div style={{ textAlign: "center", padding: "8px", color: "#999", fontSize: "13px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive' }}>
-                          No hay canchas pagadas
+                          No hay canchas que se reserven
                         </div>
                       )}
                     </div>
@@ -1591,7 +1609,7 @@ export default function CreateEventPage() {
           {step >= 6 && (
             <div style={styles.questionGroup}>
               {/* Si es Bar o Cafetería, preguntar por consumo mínimo */}
-              {(() => { const lo = lugares.find(l => l.nombre === eventData.lugarOption); return lo ? (lo.categoria === "bar" || lo.categoria === "cafetería") : (eventData.lugarOption === "Bar" || eventData.lugarOption === "Cafetería"); })() ? (
+              {!esPromoActivo && (() => { const lo = lugares.find(l => l.nombre === eventData.lugarOption); return lo ? (lo.categoria === "bar" || lo.categoria === "cafetería") : (eventData.lugarOption === "Bar" || eventData.lugarOption === "Cafetería"); })() ? (
                 <>
                   <h2 style={styles.questionTitle}>Consumo mínimo ?</h2>
                   <div style={styles.options}>
@@ -1647,11 +1665,46 @@ export default function CreateEventPage() {
                       <input
                         type="number"
                         style={styles.valorInput}
-                        placeholder="Valor por persona"
+                        placeholder={esPromoActivo ? "Precio por persona (se paga en el local)" : "Valor por persona"}
                         value={eventData.costoNumber || ""}
                         onChange={(e) => handleCostoInput(e.target.value)}
                         min={0}
                       />
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Evento promocionado (solo admin): el local paga a Kiu por cada persona que llega */}
+          {esAdmin && eventData.tipo === "Evento" && step >= 6 && (
+            <div style={{ ...styles.questionGroup, border: "3px solid #333", boxShadow: "3px 3px 0 #000", background: "#fffde7", padding: isMobile ? "14px" : "18px" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "10px", fontFamily: '"Patrick Hand", "Comic Sans MS", system-ui, cursive', fontSize: "18px", fontWeight: "bold", cursor: "pointer" }}>
+                <input type="checkbox" id="promo-activo" checked={promo.activo} onChange={e => setPromo({ ...promo, activo: e.target.checked })} style={{ width: "20px", height: "20px" }} />
+                Evento promocionado
+              </label>
+              <div style={{ fontFamily: '"Patrick Hand", system-ui, cursive', fontSize: "14px", color: "#555", margin: "6px 0 12px", lineHeight: 1.35 }}>
+                Sale en el carrusel "Talleres y eventos" con el sello Promocionado. El local te paga por cada persona que llega
+                (marcan su llegada con un código que verás en el evento). El precio del taller lo cobra el local.
+              </div>
+              {promo.activo && (
+                <>
+                  <label htmlFor="promo-tarifa" style={{ display: "block", fontFamily: '"Patrick Hand", system-ui, cursive', fontWeight: "bold", marginBottom: "4px" }}>
+                    Lo que el local te paga por cada persona que llega ($)
+                  </label>
+                  <input type="number" id="promo-tarifa" min={0} step={100} placeholder="Ej: 2000"
+                    value={promo.tarifa} onChange={e => setPromo({ ...promo, tarifa: e.target.value })}
+                    style={{ ...styles.valorInput, width: "100%", maxWidth: "360px", boxSizing: "border-box" }} />
+                  <label htmlFor="promo-detalle" style={{ display: "block", fontFamily: '"Patrick Hand", system-ui, cursive', fontWeight: "bold", margin: "12px 0 4px" }}>
+                    Detalle para los inscritos (opcional)
+                  </label>
+                  <textarea id="promo-detalle" maxLength={500} placeholder="Qué incluye, qué llevar..."
+                    value={promo.detalle} onChange={e => setPromo({ ...promo, detalle: e.target.value })}
+                    style={{ display: "block", width: "100%", maxWidth: "460px", minHeight: "80px", padding: "10px", border: "2px solid #000", fontFamily: '"Patrick Hand", system-ui, cursive', fontSize: "15px", boxSizing: "border-box" }} />
+                  {eventData.lugarOption === "Otro" && (
+                    <div style={{ color: "#c62828", fontFamily: '"Patrick Hand", system-ui, cursive', marginTop: "8px" }}>
+                      Elige un local del catálogo (no "Otro lugar") para poder cobrarle.
                     </div>
                   )}
                 </>

@@ -88,15 +88,21 @@ export function TerminosPage() {
       <ul style={S.ul}>
         <li>Tratar a los demás con respeto: nada de insultos, acoso, amenazas ni discriminación.</li>
         <li>Publicar eventos reales, con información correcta, y avisar si cambian o se cancelan.</li>
-        <li>No usar Kiu para vender, hacer publicidad o enviar spam.</li>
+        <li>No usar Kiu para vender, hacer publicidad o enviar spam (los únicos eventos con fines comerciales son los promocionados que publica Kiu; ver el punto 4).</li>
         <li>No publicar eventos ilegales o peligrosos, ni contenido sexual, violento u ofensivo.</li>
         <li>Si te inscribes y no vas a ir, salir del evento para liberar tu cupo.</li>
       </ul>
 
-      <h2 style={S.h2}>4. Eventos con costo</h2>
+      <h2 style={S.h2}>4. Eventos con costo y eventos promocionados</h2>
       <p>
         Si un evento tiene costo (por ejemplo, el arriendo de una cancha), el pago se acuerda directamente entre el
-        organizador y los participantes, fuera de Kiu. Kiu no cobra, no recibe pagos y no responde por ellos.
+        organizador y los participantes, fuera de Kiu. Kiu no cobra a los usuarios, no recibe sus pagos y no responde por ellos.
+      </p>
+      <p>
+        Algunos eventos son <strong>promocionados</strong>: talleres, cursos, catas u otras actividades en un local (por
+        ejemplo, una cafetería) que le paga a Kiu por cada persona que asiste. Siempre se muestran con el sello
+        "Promocionado". Para saber cuántas personas llegaron, cada inscrito marca su llegada con un código que muestra el
+        local. Si la actividad tiene precio, se paga directamente al local, que es responsable de lo que ofrece.
       </p>
 
       <h2 style={S.h2}>5. Tu seguridad</h2>
@@ -136,6 +142,11 @@ export function TerminosPage() {
         Hacemos lo posible para que Kiu funcione bien, pero el servicio se ofrece tal como está y puede tener fallas o
         interrupciones. Kiu no responde por los daños que surjan de los eventos ni del trato entre usuarios, en la medida
         que la ley lo permita.
+      </p>
+      <p>
+        Parte de los datos de canchas (nombre, ubicación, si tiene luz) viene de OpenStreetMap: © colaboradores
+        de <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>, disponibles
+        bajo la licencia ODbL.
       </p>
 
       <h2 style={S.h2}>9. Cambios a estos términos</h2>
@@ -178,7 +189,7 @@ export function PrivacidadPage() {
         <li><strong>Estadísticas de uso:</strong> contamos acciones dentro de Kiu (cuántos eventos se crean, cuántas personas se unen) para mejorar el servicio. No usamos cookies de publicidad ni herramientas de seguimiento de terceros.</li>
         <li><strong>Links compartidos:</strong> cuando abres el link de un evento guardamos qué evento era, de dónde venía el link (por ejemplo, WhatsApp) y un código al azar que queda en tu navegador por 7 días. Si después creas una cuenta o te inscribes en ese evento, lo asociamos para saber si los links funcionan. No guardamos tu IP ni datos de tu dispositivo para esto.</li>
         <li><strong>Calendario (opcional):</strong> si activas el calendario automático, creamos un link secreto que tu app de calendario consulta para mostrar los eventos en que estás inscrito. Puedes cambiarlo desde tu perfil y el anterior deja de funcionar.</li>
-        <li><strong>Asistencia y strikes:</strong> si quien organiza un evento marca si llegaste, y los strikes que tengas, con su motivo y tus apelaciones.</li>
+        <li><strong>Asistencia y strikes:</strong> si llegaste a un evento (lo marca quien organiza o, en los eventos promocionados, tú mismo con el código del local), y los strikes que tengas, con su motivo y tus apelaciones.</li>
       </ul>
 
       <h2 style={S.h2}>3. Para qué los usamos</h2>
@@ -196,7 +207,8 @@ export function PrivacidadPage() {
         <li><strong>Cualquier persona, sin cuenta:</strong> el título, la fecha, el lugar y el costo de un evento, el nombre de quien lo organiza y cuántas personas van.</li>
         <li><strong>Usuarios con sesión:</strong> además, el nombre y apellido de los participantes, los mensajes del muro, lo que cada uno lleva, y tu perfil público (nombre, fecha en que te registraste, si estás verificado, tus advertencias y cuántos eventos creaste o en cuántos participaste).</li>
         <li><strong>Nadie más que tú:</strong> tu email, tu teléfono, tu fecha de nacimiento y tu género no se muestran a otros usuarios.</li>
-        <li><strong>Quien organiza el evento:</strong> la asistencia que marcó en su evento. Los demás participantes no la ven.</li>
+        <li><strong>Quien organiza el evento:</strong> la asistencia de su evento. Los demás participantes no la ven.</li>
+        <li><strong>El local de un evento promocionado:</strong> solo cuántas personas se inscribieron y cuántas llegaron, para el cobro. No le entregamos nombres ni datos de contacto.</li>
         <li><strong>El equipo de Kiu:</strong> los administradores pueden ver los datos de las cuentas para moderar y dar soporte.</li>
       </ul>
 

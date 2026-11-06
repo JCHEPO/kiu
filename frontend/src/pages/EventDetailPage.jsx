@@ -6,6 +6,7 @@ import { mapsHref } from "../utils/maps";
 import ReportModal from "../components/ReportModal";
 import { registrarApertura, visitaDe, linkDeEvento, origenValido, PAGINA_DE_ENTRADA } from "../utils/seguimiento";
 import { descargarIcs, linkGoogleCalendar } from "../utils/calendario";
+import { ventanaCheckin, normalizarCodigo, linkCheckin, guardarCodigo, leerCodigo, borrarCodigo, pesos, MIN_ANTES_CHECKIN, HORAS_DESPUES_CHECKIN } from "../utils/promocionados";
 
 import { API_URL } from "../config/api";
 
@@ -54,6 +55,29 @@ export default function EventDetailPage() {
   const [noSeJugo, setNoSeJugo] = useState(false);
   const [guardandoAsistencia, setGuardandoAsistencia] = useState(false);
   const [asistenciaMsg, setAsistenciaMsg] = useState("");
+
+  // --- Evento promocionado ---
+  // Código de llegada: el del QR del local (?checkin=) se usa solo; el que se escribe, al tocar "Llegué"
+  const [codigoQr, setCodigoQr] = useState(() => leerCodigo(id));
+  const [codigoCheckin, setCodigoCheckin] = useState(() => leerCodigo(id));
+  const [miLlegada, setMiLlegada] = useState(null);      // { estado, at } de quien está inscrito
+  const [checkinMsg, setCheckinMsg] = useState("");
+  const [checkinEnviando, setCheckinEnviando] = useState(false);
+  const [promoAdmin, setPromoAdmin] = useState(null);    // { checkinCodigo, tarifaKiu }, solo el organizador
+  const [qrUrl, setQrUrl] = useState(null);
+  const checkinAuto = useRef(false);
+
+  // Leer ?checkin= del QR y guardarlo (sobrevive al login y a la inscripción); se saca de la barra
+  useEffect(() => {
+    const c = normalizarCodigo(searchParams.get("checkin"));
+    if (!c) return;
+    setCodigoQr(c);
+    setCodigoCheckin(c);
+    guardarCodigo(id, c);
+    const p = new URLSearchParams(window.location.search);
+    p.delete("checkin");
+    setSearchParams(p, { replace: true });
+  }, [id]);
 
   // Link compartido: anotar la apertura (métrica del piloto) y sacar ?o= de la barra de direcciones,
   // para que si alguien copia esa URL no herede el origen.
@@ -140,12 +164,76 @@ export default function EventDetailPage() {
         setMarcas(Object.fromEntries(data.asistencia.map(a => [String(a.user), a.estado])));
         setNoSeJugo(!!data.noSeJugo);
       }
+      // Lo propio de los promocionados no viaja en las actualizaciones en vivo: se guarda aparte
+      if (data.checkinCodigo) setPromoAdmin({ checkinCodigo: data.checkinCodigo, tarifaKiu: data.tarifaKiu || 0 });
+      if (data.miLlegada !== undefined) setMiLlegada(data.miLlegada);
     } catch (error) {
       console.error("Error fetching event:", error);
       alert("Error al cargar evento");
     } finally {
       setLoading(false);
     }
+  };
+
+  // "Llegué": marca la llegada con el código del local
+  const marcarLlegada = async (codigo) => {
+    const c = normalizarCodigo(codigo);
+    if (!c) { setCheckinMsg("Escribe el código que está en el local"); return; }
+    setCheckinEnviando(true); setCheckinMsg("");
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/events/${id}/checkin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ codigo: c })
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setCheckinMsg(d.error || "No se pudo marcar tu llegada"); return; }
+      setMiLlegada({ estado: "llego", at: d.at });
+      borrarCodigo(id);
+    } catch {
+      setCheckinMsg("Error de conexión");
+    } finally {
+      setCheckinEnviando(false);
+    }
+  };
+
+  // Escaneó el QR y ya está inscrito (o se acaba de inscribir): marcar la llegada sola
+  useEffect(() => {
+    if (checkinAuto.current || !auth || !event || event.isPublicView || !event.promocionado) return;
+    if (!codigoQr || miLlegada?.estado === "llego") return;
+    const yo = auth.user?.id?.toString();
+    const inscrito = event.participants?.some(p => String(p._id ?? p) === yo);
+    const organizador = String(event.creator?._id ?? event.creator) === yo;
+    if (!inscrito || organizador || ventanaCheckin(event.date) !== "abierta") return;
+    checkinAuto.current = true;
+    marcarLlegada(codigoQr);
+  }, [auth, event, codigoQr, miLlegada]);
+
+  // QR del local (solo el organizador): se arma en el navegador, sin servicios externos
+  useEffect(() => {
+    if (!promoAdmin?.checkinCodigo) return;
+    let vigente = true;
+    import("qrcode")
+      .then((QR) => QR.toDataURL(linkCheckin(id, promoAdmin.checkinCodigo), { width: 640, margin: 2, errorCorrectionLevel: "M" }))
+      .then((url) => { if (vigente) setQrUrl(url); })
+      .catch(() => {});
+    return () => { vigente = false; };
+  }, [promoAdmin?.checkinCodigo, id]);
+
+  // Cartel para imprimir y dejar en el local
+  const imprimirCartel = () => {
+    if (!qrUrl || !promoAdmin) return;
+    const w = window.open("", "_blank");
+    if (!w) { alert("Permite las ventanas emergentes para imprimir el cartel"); return; }
+    const esc = (t) => String(t ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+    w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Kiu · ${esc(event.title)}</title>
+      <style>body{font-family:system-ui,sans-serif;text-align:center;padding:40px;color:#000}h1{font-size:40px;margin:0 0 6px}
+      p{font-size:20px;margin:6px 0}.codigo{font-size:56px;font-weight:900;letter-spacing:.2em;margin:10px 0}img{width:340px;height:340px}</style></head>
+      <body><h1>${esc(event.title)}</h1><p>${esc(event.location)}</p><img src="${qrUrl}" alt=""><p><strong>¿Llegaste? Escanea con la cámara y marca tu llegada en Kiu</strong></p>
+      <p>o escribe este código en el evento:</p><div class="codigo">${esc(promoAdmin.checkinCodigo)}</div></body></html>`);
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 300);
   };
 
   // Muestra el mensaje de error real del backend. En 401 no alertamos:
@@ -875,6 +963,11 @@ export default function EventDetailPage() {
           </div>
 
           <div style={styles.titleContainer}>
+            {event.promocionado && (
+              <div title="Este local le paga a Kiu por promocionar el evento" style={{ display: "inline-block", background: "#000", color: "#fff", fontSize: isMobile ? "11px" : "13px", fontWeight: 800, letterSpacing: "0.06em", padding: "3px 10px", borderRadius: "6px", marginBottom: "8px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+                PROMOCIONADO
+              </div>
+            )}
             {titleParts.line1 && <div style={styles.titleLine1}>{titleParts.line1}</div>}
             {titleParts.line2 && <div style={styles.titleLine2}>{titleParts.line2}</div>}
             {titleParts.line3 && <div style={styles.titleLine3}>{titleParts.line3}</div>}
@@ -886,7 +979,7 @@ export default function EventDetailPage() {
                 <div style={{ background: "#fff", border: "3px solid #000", borderRadius: "12px", padding: "14px", boxShadow: "4px 4px 0 #000", width: "min(320px, 90vw)", zIndex: 20 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
                     <span style={{ fontSize: "13px", fontWeight: 900, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
-                      {!event.cost || Number(event.cost) === 0 ? "Canchas gratuitas" : "Canchas pagadas"}
+                      {!event.cost || Number(event.cost) === 0 ? "Canchas de uso libre" : "Canchas que se reservan"}
                     </span>
                     <span style={{ cursor: "pointer", fontSize: "16px", lineHeight: 1 }} onClick={() => setEditingLocation(false)}>✕</span>
                   </div>
@@ -964,7 +1057,10 @@ export default function EventDetailPage() {
                   )}
                 </div>
               )}
-              <div>{event.cost ? `$${event.cost} por persona` : "Gratis"}</div>
+              <div>{event.cost ? `${pesos(event.cost)} ${event.promocionado ? "· se paga en el local" : "por persona"}` : "Gratis"}</div>
+              {event.cancha?.tieneLuz && (
+                <div style={{ fontSize: "13px", marginTop: "4px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>💡 Cancha con luz</div>
+              )}
               {event.lugarTipo === "gratuita" && (
                 <div style={{ fontSize: "13px", color: "#7a4b00", marginTop: "4px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
                   Cancha de uso libre: no se reserva y al llegar puede estar ocupada.
@@ -1063,6 +1159,90 @@ export default function EventDetailPage() {
             >
               Reportar evento
             </button>
+          </div>
+        )}
+
+        {/* Detalle del taller (promocionados) */}
+        {event.promocionado && event.description && event.description !== event.title && (
+          <div style={{ ...styles.section, marginBottom: "14px" }}>
+            <h3 style={styles.sectionTitle}>Detalle</h3>
+            <p style={{ fontSize: "15px", lineHeight: 1.5, margin: 0, whiteSpace: "pre-wrap", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>{event.description}</p>
+          </div>
+        )}
+
+        {/* Escaneó el QR sin estar inscrito */}
+        {event.promocionado && codigoQr && !isParticipant && !isCreator && (
+          <div style={{ ...styles.section, marginBottom: "14px", background: "#fffde7" }}>
+            <p style={{ fontSize: "15px", margin: 0, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+              Escaneaste el código del local. {isPublicView ? "Inicia sesión e inscríbete" : "Inscríbete"} y tu llegada se marca sola.
+            </p>
+          </div>
+        )}
+
+        {/* "Llegué" (inscritos en un promocionado) */}
+        {event.promocionado && isParticipant && !isCreator && (() => {
+          const ventana = ventanaCheckin(event.date);
+          if (miLlegada?.estado === "llego") {
+            return (
+              <div id="checkin-ok" style={{ ...styles.section, marginBottom: "14px", background: "#e8f5e9" }}>
+                <p style={{ fontSize: "16px", margin: 0, fontWeight: 700, fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>✓ Llegada marcada. ¡Que lo disfrutes!</p>
+              </div>
+            );
+          }
+          if (ventana === "despues") return null;
+          return (
+            <div style={{ ...styles.section, marginBottom: "14px" }}>
+              <h3 style={styles.sectionTitle}>¿Llegaste?</h3>
+              {ventana === "antes" ? (
+                <p style={{ fontSize: "14px", lineHeight: 1.5, margin: 0, color: "#444", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+                  Cuando llegues, escanea el QR del local o escribe su código aquí. Se activa {MIN_ANTES_CHECKIN} minutos antes del inicio.
+                </p>
+              ) : (
+                <>
+                  <p style={{ fontSize: "14px", lineHeight: 1.5, margin: "0 0 10px", color: "#444", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+                    Escanea el QR del local o escribe el código que está a la vista.
+                  </p>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <input id="checkin-codigo" type="text" inputMode="text" autoCapitalize="characters" maxLength={12} placeholder="Código"
+                      value={codigoCheckin} onChange={e => setCodigoCheckin(normalizarCodigo(e.target.value))}
+                      onKeyDown={e => { if (e.key === "Enter") marcarLlegada(codigoCheckin); }}
+                      style={{ padding: "10px 12px", border: "3px solid #000", fontSize: "18px", fontWeight: 800, letterSpacing: "0.15em", width: "160px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }} />
+                    <button onClick={() => marcarLlegada(codigoCheckin)} disabled={checkinEnviando}
+                      style={{ ...styles.actionButton, flex: "0 0 auto", margin: 0 }}>
+                      {checkinEnviando ? "Marcando..." : "Llegué"}
+                    </button>
+                  </div>
+                  {checkinMsg && <div style={{ color: "#c62828", fontSize: "14px", marginTop: "8px", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>{checkinMsg}</div>}
+                </>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Código y QR del local (organizador de un promocionado) */}
+        {isCreator && event.promocionado && promoAdmin && (
+          <div id="codigo-local" style={{ ...styles.section, marginBottom: "14px" }}>
+            <h3 style={styles.sectionTitle}>Código de llegada</h3>
+            <p style={{ fontSize: "14px", lineHeight: 1.5, margin: "0 0 12px", color: "#444", fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+              Deja el QR impreso o el código a la vista en el local. Cada inscrito lo escanea al llegar (desde {MIN_ANTES_CHECKIN} min antes
+              hasta {HORAS_DESPUES_CHECKIN} h después del inicio). Al local se le cobra: personas que llegaron × {pesos(promoAdmin.tarifaKiu)}.
+            </p>
+            <div style={{ display: "flex", gap: "18px", alignItems: "center", flexWrap: "wrap" }}>
+              {qrUrl && <img src={qrUrl} alt={`QR para marcar la llegada, código ${promoAdmin.checkinCodigo}`} width={150} height={150} style={{ border: "3px solid #000" }} />}
+              <div style={{ fontFamily: '"Bricolage Grotesque", system-ui, sans-serif' }}>
+                <div style={{ fontSize: "34px", fontWeight: 900, letterSpacing: "0.15em" }}>{promoAdmin.checkinCodigo}</div>
+                <div style={{ fontSize: "14px", margin: "4px 0 10px" }}>
+                  Llegaron {(asistencia || []).filter(a => a.estado === "llego").length} de {participantesParaMarcar.length} inscritos
+                  {" · "}a cobrar {pesos((asistencia || []).filter(a => a.estado === "llego").length * promoAdmin.tarifaKiu)}
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  {qrUrl && (
+                    <a href={qrUrl} download={`kiu-qr-${promoAdmin.checkinCodigo}.png`} style={{ ...styles.actionButton, textDecoration: "none", display: "inline-block", margin: 0, flex: "0 0 auto" }}>Descargar QR</a>
+                  )}
+                  <button onClick={imprimirCartel} disabled={!qrUrl} style={{ ...styles.actionButton, margin: 0, flex: "0 0 auto" }}>Imprimir cartel</button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
